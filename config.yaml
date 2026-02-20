@@ -1,0 +1,129 @@
+# InfrOS Lead Research Tool - Configuration
+# Edit this file or use the Settings page in the UI
+
+reddit:
+  api:
+    # Optional: Reddit API credentials for higher rate limits (60 -> 100 req/min)
+    # Create an app at https://www.reddit.com/prefs/apps (script type)
+    client_id: ""
+    client_secret: ""
+    username: ""
+    password: ""
+    user_agent: "InfrOS Lead Research Tool v1.0 (contact: your@email.com)"
+
+  # Subreddits to search — these are the communities InfrOS prospects live in
+  subreddits:
+    - devops
+    - aws
+    - azure
+    - googlecloud
+    - terraform
+    - kubernetes
+    - sysadmin
+    - cloudcomputing
+    - FinOps
+    - devops_beginner
+    - selfhosted
+    - docker
+    - k8s
+    - ExperiencedDevs
+
+  # General keywords — used for broad searches across all subreddits
+  keywords:
+    - "cloud costs"
+    - "terraform"
+    - "infrastructure automation"
+    - "cloud migration"
+    - "multi-cloud"
+    - "cloud spend"
+    - "infrastructure as code"
+    - "cloud architecture"
+    - "cloud optimization"
+    - "IaC"
+    - "cloud bill"
+    - "AWS cost"
+    - "Azure cost"
+    - "GCP cost"
+    - "Terraform state"
+    - "cloud deployment"
+
+  # Topics — named groups of keywords for focused searches
+  topics:
+    - name: "Cloud Cost Pain"
+      description: "Teams struggling with unexpectedly high cloud bills"
+      keywords:
+        - "cloud bill too high"
+        - "reduce cloud costs"
+        - "cloud spend out of control"
+        - "AWS bill"
+        - "Azure invoice"
+        - "GCP costs"
+        - "FinOps"
+        - "cloud waste"
+        - "rightsizing"
+
+    - name: "Infrastructure Complexity"
+      description: "Teams buried in manual, hard-to-manage infrastructure"
+      keywords:
+        - "terraform complexity"
+        - "terraform state"
+        - "IaC management"
+        - "configuration drift"
+        - "infrastructure debt"
+        - "manual infrastructure"
+        - "hard to maintain"
+        - "infrastructure sprawl"
+
+    - name: "Cloud Migration"
+      description: "Companies moving to or between cloud providers"
+      keywords:
+        - "cloud migration"
+        - "migrating to cloud"
+        - "lift and shift"
+        - "migration pain"
+        - "moving to AWS"
+        - "moving to Azure"
+        - "cloud adoption"
+        - "on-prem to cloud"
+
+    - name: "Multi-Cloud Challenges"
+      description: "Teams managing multiple cloud providers simultaneously"
+      keywords:
+        - "multi-cloud"
+        - "hybrid cloud"
+        - "multiple cloud providers"
+        - "vendor lock-in"
+        - "cloud agnostic"
+        - "cross-cloud"
+        - "polycloud"
+
+    - name: "Slow Deployments"
+      description: "Teams with painful, slow, or unreliable deployment processes"
+      keywords:
+        - "deployment slow"
+        - "manual deployment"
+        - "deployment pain"
+        - "deployment bottleneck"
+        - "slow release"
+        - "months to deploy"
+        - "infrastructure automation"
+
+    - name: "Cloud Architecture Help"
+      description: "Teams seeking architecture guidance or best practices"
+      keywords:
+        - "cloud architecture advice"
+        - "best practices AWS"
+        - "best practices Azure"
+        - "how to architect"
+        - "cloud design"
+        - "architecture review"
+        - "well-architected"
+
+  search:
+    time_filter: "month"    # hour | day | week | month | year | all
+    sort: "relevance"       # relevance | hot | top | new | comments
+    max_results: 50         # per subreddit/keyword combination
+    min_score: 3            # minimum post upvotes to include
+
+linkedin:
+  base_search_url: "https://www.linkedin.com/search/results/people/"
