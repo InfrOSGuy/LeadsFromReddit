@@ -75,6 +75,92 @@ with st.sidebar:
         )
 
 # ===========================================================================
+# Helpers
+# ===========================================================================
+
+def _render_profile_card(profile: dict, idx: int):
+    role = profile["role"]
+    cloud = profile["cloud_platform"]
+    count = profile["post_count"]
+    pain_count = profile["post_type_counts"].get("pain", 0)
+
+    with st.expander(
+        f"**{role}** · {cloud}  —  {count} posts ({pain_count} pain)",
+        expanded=(idx == 0),
+    ):
+        col1, col2 = st.columns([3, 2])
+
+        with col1:
+            st.markdown("**Pain points observed:**")
+            for summary in profile.get("pain_summaries", [])[:6]:
+                st.markdown(f"- {summary}")
+
+            if profile.get("sample_titles"):
+                st.markdown("**Sample post titles:**")
+                for title in profile["sample_titles"]:
+                    st.markdown(f"- *{title}*")
+
+        with col2:
+            st.markdown("**Tech stack signals:**")
+            if profile.get("tech_stack"):
+                st.markdown(" ".join(f"`{t}`" for t in profile["tech_stack"]))
+
+            if profile.get("company_sizes"):
+                st.markdown("**Company size signals:**")
+                st.markdown(", ".join(profile["company_sizes"]))
+
+            st.markdown("**LinkedIn search query:**")
+            st.code(profile.get("linkedin_query", ""), language=None)
+
+        st.link_button(
+            "🔗 Search LinkedIn →",
+            url=profile.get("linkedin_url", "#"),
+            use_container_width=True,
+        )
+
+
+def _render_post_card(post: dict):
+    rel = post.get("relevance_score", 0)
+    post_type = post.get("post_type", "discussion")
+    type_emoji = {"pain": "🔴", "solution": "🟢", "mixed": "🟡", "discussion": "⚪"}.get(
+        post_type, "⚪"
+    )
+
+    with st.expander(
+        f"{type_emoji} [{post.get('subreddit', '')}] {post.get('title', '')[:90]}  "
+        f"— relevance: {rel:.0%}",
+        expanded=False,
+    ):
+        col_a, col_b = st.columns([2, 1])
+
+        with col_a:
+            if post.get("body"):
+                st.markdown(f"*{post['body'][:400].strip()}{'…' if len(post.get('body','')) > 400 else ''}*")
+
+            if post.get("pain_signals"):
+                st.markdown("**Pain signals:** " + " · ".join(f"`{s}`" for s in post["pain_signals"]))
+            if post.get("solution_signals"):
+                st.markdown("**Solution signals:** " + " · ".join(f"`{s}`" for s in post["solution_signals"]))
+
+        with col_b:
+            if post.get("roles"):
+                st.markdown("**Roles detected:**")
+                for r in post["roles"]:
+                    st.markdown(f"- {r}")
+            if post.get("tech_stack"):
+                st.markdown("**Tech stack:**")
+                st.markdown(" ".join(f"`{t}`" for t in post["tech_stack"]))
+            if post.get("company_size"):
+                st.markdown("**Company size:** " + ", ".join(post["company_size"]))
+
+        st.markdown(
+            f"👍 {post.get('score', 0)}  💬 {post.get('num_comments', 0)}  "
+            f"📅 {post.get('created_date', '')}  "
+            f"[View on Reddit ↗]({post.get('url', '')})"
+        )
+
+
+# ===========================================================================
 # PAGE: Search & Discover
 # ===========================================================================
 
@@ -248,47 +334,6 @@ if page == "Search & Discover":
         st.info("Configure your search above and click **Run Search** to start.")
 
 
-def _render_post_card(post: dict):
-    rel = post.get("relevance_score", 0)
-    post_type = post.get("post_type", "discussion")
-    type_emoji = {"pain": "🔴", "solution": "🟢", "mixed": "🟡", "discussion": "⚪"}.get(
-        post_type, "⚪"
-    )
-
-    with st.expander(
-        f"{type_emoji} [{post.get('subreddit', '')}] {post.get('title', '')[:90]}  "
-        f"— relevance: {rel:.0%}",
-        expanded=False,
-    ):
-        col_a, col_b = st.columns([2, 1])
-
-        with col_a:
-            if post.get("body"):
-                st.markdown(f"*{post['body'][:400].strip()}{'…' if len(post.get('body','')) > 400 else ''}*")
-
-            if post.get("pain_signals"):
-                st.markdown("**Pain signals:** " + " · ".join(f"`{s}`" for s in post["pain_signals"]))
-            if post.get("solution_signals"):
-                st.markdown("**Solution signals:** " + " · ".join(f"`{s}`" for s in post["solution_signals"]))
-
-        with col_b:
-            if post.get("roles"):
-                st.markdown("**Roles detected:**")
-                for r in post["roles"]:
-                    st.markdown(f"- {r}")
-            if post.get("tech_stack"):
-                st.markdown("**Tech stack:**")
-                st.markdown(" ".join(f"`{t}`" for t in post["tech_stack"]))
-            if post.get("company_size"):
-                st.markdown("**Company size:** " + ", ".join(post["company_size"]))
-
-        st.markdown(
-            f"👍 {post.get('score', 0)}  💬 {post.get('num_comments', 0)}  "
-            f"📅 {post.get('created_date', '')}  "
-            f"[View on Reddit ↗]({post.get('url', '')})"
-        )
-
-
 # ===========================================================================
 # PAGE: Lead Profiles
 # ===========================================================================
@@ -355,47 +400,6 @@ elif page == "Lead Profiles":
                 file_name="infros_linkedin_queries.csv",
                 mime="text/csv",
             )
-
-
-def _render_profile_card(profile: dict, idx: int):
-    role = profile["role"]
-    cloud = profile["cloud_platform"]
-    count = profile["post_count"]
-    pain_count = profile["post_type_counts"].get("pain", 0)
-
-    with st.expander(
-        f"**{role}** · {cloud}  —  {count} posts ({pain_count} pain)",
-        expanded=(idx == 0),
-    ):
-        col1, col2 = st.columns([3, 2])
-
-        with col1:
-            st.markdown("**Pain points observed:**")
-            for summary in profile.get("pain_summaries", [])[:6]:
-                st.markdown(f"- {summary}")
-
-            if profile.get("sample_titles"):
-                st.markdown("**Sample post titles:**")
-                for title in profile["sample_titles"]:
-                    st.markdown(f"- *{title}*")
-
-        with col2:
-            st.markdown("**Tech stack signals:**")
-            if profile.get("tech_stack"):
-                st.markdown(" ".join(f"`{t}`" for t in profile["tech_stack"]))
-
-            if profile.get("company_sizes"):
-                st.markdown("**Company size signals:**")
-                st.markdown(", ".join(profile["company_sizes"]))
-
-            st.markdown("**LinkedIn search query:**")
-            st.code(profile.get("linkedin_query", ""), language=None)
-
-        st.link_button(
-            "🔗 Search LinkedIn →",
-            url=profile.get("linkedin_url", "#"),
-            use_container_width=True,
-        )
 
 
 # ===========================================================================
