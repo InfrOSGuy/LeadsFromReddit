@@ -77,7 +77,7 @@ class RedditScraper:
                 if progress_callback:
                     progress_callback(
                         step / total_steps,
-                        f"Searching r/{subreddit} for "{keyword}"…",
+                        f'Searching r/{subreddit} for "{keyword}"…',
                     )
 
                 try:
@@ -152,7 +152,7 @@ class RedditScraper:
                 if progress_callback:
                     progress_callback(
                         step / total_steps,
-                        f"[API] Searching r/{subreddit} for "{keyword}"…",
+                        f'[API] Searching r/{subreddit} for "{keyword}"…',
                     )
                 try:
                     results = sub.search(
