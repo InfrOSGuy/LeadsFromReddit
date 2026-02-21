@@ -26,10 +26,29 @@ def save_session(
     metadata: dict | None = None,
 ) -> str:
     """Serialise the session to a JSON string and return it."""
+    meta = metadata or {}
     session = {
         "version": SESSION_VERSION,
         "saved_at": datetime.now().isoformat(),
-        "metadata": metadata or {},
+        # Run parameters promoted to top-level for easy reading in external tools
+        "run_params": {
+            "searched_at": meta.get("searched_at", ""),
+            "search_mode": meta.get("search_mode", ""),
+            "subreddits_searched": meta.get("subreddits_searched", []),
+            "keywords_searched": meta.get("keywords_searched", []),
+            "topics_selected": meta.get("topics_selected", []),
+            "time_filter": meta.get("time_filter", ""),
+            "sort": meta.get("sort", ""),
+            "min_score": meta.get("min_score", 0),
+            "max_results_per_query": meta.get("max_results_per_query", 0),
+            "api_mode": meta.get("api_mode", ""),
+        },
+        # Result summary
+        "summary": {
+            "total_posts_found": meta.get("total_posts_found", len(analyzed_posts)),
+            "total_lead_profiles": meta.get("total_lead_profiles", len(lead_profiles)),
+        },
+        # Full data
         "raw_posts": raw_posts,
         "analyzed_posts": analyzed_posts,
         "lead_profiles": lead_profiles,

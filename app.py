@@ -134,15 +134,16 @@ with st.sidebar:
 
     if has_results:
         fname = f"infros_session_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
-        st.download_button(
+        _sidebar_saved = st.download_button(
             "⬇️ Save session",
             data=_session_json(),
             file_name=fname,
             mime="application/json",
             use_container_width=True,
-            on_click=_mark_manual_save,
             help="Download the full session as JSON so you can reload it later.",
         )
+        if _sidebar_saved:
+            _mark_manual_save()
         label = _autosave_label()
         if label:
             st.caption(label)
@@ -296,14 +297,15 @@ if page == "Search & Discover":
                 "Running a new search will overwrite them. Save your session first."
             )
         with btn_col:
-            st.download_button(
+            _warn_saved = st.download_button(
                 "💾 Save now",
                 data=_session_json(),
                 file_name=f"infros_session_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                 mime="application/json",
                 use_container_width=True,
-                on_click=_mark_manual_save,
             )
+            if _warn_saved:
+                _mark_manual_save()
 
     cfg = st.session_state.config
     search_cfg = cfg["reddit"]["search"]
@@ -329,6 +331,8 @@ if page == "Search & Discover":
                 ["Use Topics", "Use Keywords", "Custom"],
                 label_visibility="collapsed",
             )
+
+        selected_topics: list[str] = []  # populated below when mode == "Use Topics"
 
         if mode == "Use Topics":
             topic_names = [t["name"] for t in cfg["reddit"]["topics"]]
@@ -424,13 +428,23 @@ if page == "Search & Discover":
         st.session_state.last_manual_save_at = None   # new results → unsaved again
         st.session_state._generated_report = None     # invalidate cached report
         st.session_state._session_metadata = {
-            "subreddits": selected_subs,
-            "keywords": active_keywords,
+            # When
+            "searched_at": datetime.now().isoformat(),
+            # What was searched
             "search_mode": mode,
+            "subreddits_searched": selected_subs,
+            "keywords_searched": active_keywords,
+            "topics_selected": selected_topics,
+            # Search parameters
             "time_filter": time_filter,
             "sort": sort_by,
             "min_score": int(min_score),
-            "searched_at": datetime.now().isoformat(),
+            "max_results_per_query": int(search_cfg.get("max_results", 25)),
+            # Result summary
+            "total_posts_found": len(analyzed),
+            "total_lead_profiles": len(lead_profiles),
+            # API info
+            "api_mode": "authenticated" if using_api else "public",
         }
 
         # Auto-save immediately after search so a browser refresh loses nothing
@@ -545,14 +559,15 @@ elif page == "Lead Profiles":
                 mime="text/csv",
             )
         with col_exp3:
-            st.download_button(
+            _profiles_saved = st.download_button(
                 "💾 Save full session (JSON)",
                 data=_session_json(),
                 file_name=f"infros_session_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
                 mime="application/json",
-                on_click=_mark_manual_save,
                 help="Download the full session including all posts and profiles.",
             )
+            if _profiles_saved:
+                _mark_manual_save()
 
 
 # ===========================================================================
