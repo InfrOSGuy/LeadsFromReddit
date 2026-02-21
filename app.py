@@ -10,6 +10,7 @@ Run with:
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -19,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.config_manager import load_config, save_config
 from src.reddit_scraper import RedditScraper
 from src.analyzer import analyze_post, build_lead_profiles
+from src.session_manager import save_session, load_session, autosave as _disk_autosave
+from src.report_generator import generate_report
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -43,6 +46,54 @@ if "analyzed_posts" not in st.session_state:
     st.session_state.analyzed_posts = []
 if "lead_profiles" not in st.session_state:
     st.session_state.lead_profiles = []
+if "_prev_page" not in st.session_state:
+    st.session_state._prev_page = None
+if "last_autosave_at" not in st.session_state:
+    st.session_state.last_autosave_at = None
+if "last_manual_save_at" not in st.session_state:
+    st.session_state.last_manual_save_at = None
+if "_session_metadata" not in st.session_state:
+    st.session_state._session_metadata = {}
+if "_loaded_session_name" not in st.session_state:
+    st.session_state._loaded_session_name = None
+if "_generated_report" not in st.session_state:
+    st.session_state._generated_report = None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _mark_manual_save():
+    st.session_state.last_manual_save_at = datetime.now()
+
+
+def _do_autosave():
+    _disk_autosave(
+        st.session_state.raw_posts,
+        st.session_state.analyzed_posts,
+        st.session_state.lead_profiles,
+    )
+    st.session_state.last_autosave_at = datetime.now()
+
+
+def _session_json() -> str:
+    return save_session(
+        st.session_state.raw_posts,
+        st.session_state.analyzed_posts,
+        st.session_state.lead_profiles,
+        st.session_state._session_metadata,
+    )
+
+
+def _autosave_label() -> str:
+    ts = st.session_state.last_autosave_at
+    if ts is None:
+        return ""
+    delta = int((datetime.now() - ts).total_seconds())
+    if delta < 60:
+        return "Auto-saved just now"
+    return f"Auto-saved {delta // 60} min ago"
 
 
 # ---------------------------------------------------------------------------
@@ -56,10 +107,11 @@ with st.sidebar:
 
     page = st.radio(
         "Navigate",
-        ["Search & Discover", "Lead Profiles", "Settings"],
+        ["Search & Discover", "Lead Profiles", "Report", "Settings"],
         format_func=lambda x: {
             "Search & Discover": "🔎 Search & Discover",
             "Lead Profiles": "📊 Lead Profiles",
+            "Report": "📋 Report",
             "Settings": "⚙️ Settings",
         }[x],
     )
@@ -74,8 +126,66 @@ with st.sidebar:
             f"**Lead profiles:** {len(st.session_state.lead_profiles)}"
         )
 
+    # ---- Session save / load ------------------------------------------------
+    st.divider()
+    st.markdown("### 💾 Session")
+
+    has_results = bool(st.session_state.analyzed_posts)
+
+    if has_results:
+        fname = f"infros_session_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+        st.download_button(
+            "⬇️ Save session",
+            data=_session_json(),
+            file_name=fname,
+            mime="application/json",
+            use_container_width=True,
+            on_click=_mark_manual_save,
+            help="Download the full session as JSON so you can reload it later.",
+        )
+        label = _autosave_label()
+        if label:
+            st.caption(label)
+        elif st.session_state.last_manual_save_at is None:
+            st.caption("⚠️ Not yet saved")
+    else:
+        st.caption("Run a search to enable session saving.")
+
+    st.markdown("**📂 Load session**")
+    uploaded = st.file_uploader(
+        "Load session file",
+        type=["json"],
+        key="session_upload",
+        label_visibility="collapsed",
+        help="Upload a previously saved InfrOS session JSON file.",
+    )
+    if uploaded is not None and uploaded.name != st.session_state._loaded_session_name:
+        try:
+            raw, analyzed, profiles, meta, saved_at = load_session(uploaded.read())
+            st.session_state.raw_posts = raw
+            st.session_state.analyzed_posts = analyzed
+            st.session_state.lead_profiles = profiles
+            st.session_state._session_metadata = meta
+            st.session_state.last_manual_save_at = datetime.now()
+            st.session_state._generated_report = None
+            st.session_state._loaded_session_name = uploaded.name
+            st.success(f"Session loaded ({saved_at[:10]})", icon="✅")
+        except (ValueError, KeyError) as exc:
+            st.error(f"Could not load session: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Auto-save on page navigation
+# ---------------------------------------------------------------------------
+
+_prev = st.session_state._prev_page
+if _prev is not None and _prev != page and st.session_state.analyzed_posts:
+    _do_autosave()
+st.session_state._prev_page = page
+
+
 # ===========================================================================
-# Helpers
+# Helpers — card renderers
 # ===========================================================================
 
 def _render_profile_card(profile: dict, idx: int):
@@ -135,7 +245,9 @@ def _render_post_card(post: dict):
 
         with col_a:
             if post.get("body"):
-                st.markdown(f"*{post['body'][:400].strip()}{'…' if len(post.get('body','')) > 400 else ''}*")
+                body = post["body"][:400].strip()
+                suffix = "…" if len(post.get("body", "")) > 400 else ""
+                st.markdown(f"*{body}{suffix}*")
 
             if post.get("pain_signals"):
                 st.markdown("**Pain signals:** " + " · ".join(f"`{s}`" for s in post["pain_signals"]))
@@ -171,6 +283,28 @@ if page == "Search & Discover":
         "Results are analysed for role signals, tech-stack, and pain indicators."
     )
 
+    # ---- Unsaved-results warning ----
+    if (
+        st.session_state.analyzed_posts
+        and st.session_state.last_manual_save_at is None
+    ):
+        n = len(st.session_state.analyzed_posts)
+        warn_col, btn_col = st.columns([3, 1])
+        with warn_col:
+            st.warning(
+                f"⚠️ You have **{n} unsaved posts**. "
+                "Running a new search will overwrite them. Save your session first."
+            )
+        with btn_col:
+            st.download_button(
+                "💾 Save now",
+                data=_session_json(),
+                file_name=f"infros_session_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                mime="application/json",
+                use_container_width=True,
+                on_click=_mark_manual_save,
+            )
+
     cfg = st.session_state.config
     search_cfg = cfg["reddit"]["search"]
 
@@ -203,12 +337,11 @@ if page == "Search & Discover":
                 options=topic_names,
                 default=topic_names,
             )
-            # Flatten keywords from selected topics
             active_keywords = []
             for topic in cfg["reddit"]["topics"]:
                 if topic["name"] in selected_topics:
                     active_keywords.extend(topic["keywords"])
-            active_keywords = list(dict.fromkeys(active_keywords))  # deduplicate
+            active_keywords = list(dict.fromkeys(active_keywords))
             st.caption(f"Will search {len(active_keywords)} keywords from {len(selected_topics)} topics.")
 
         elif mode == "Use Keywords":
@@ -288,11 +421,26 @@ if page == "Search & Discover":
         st.session_state.raw_posts = raw_posts
         st.session_state.analyzed_posts = analyzed
         st.session_state.lead_profiles = lead_profiles
+        st.session_state.last_manual_save_at = None   # new results → unsaved again
+        st.session_state._generated_report = None     # invalidate cached report
+        st.session_state._session_metadata = {
+            "subreddits": selected_subs,
+            "keywords": active_keywords,
+            "search_mode": mode,
+            "time_filter": time_filter,
+            "sort": sort_by,
+            "min_score": int(min_score),
+            "searched_at": datetime.now().isoformat(),
+        }
+
+        # Auto-save immediately after search so a browser refresh loses nothing
+        _do_autosave()
 
         progress_bar.empty()
         status_text.empty()
         st.success(
-            f"Found **{len(analyzed)} posts** → **{len(lead_profiles)} lead profiles**"
+            f"Found **{len(analyzed)} posts** → **{len(lead_profiles)} lead profiles**  \n"
+            "Session auto-saved. Use **💾 Save session** in the sidebar to download a copy."
         )
 
     # ---- Results ----
@@ -301,7 +449,6 @@ if page == "Search & Discover":
         st.divider()
         st.markdown(f"### Results  ({len(analyzed_posts)} posts)")
 
-        # Filter bar
         filter_col1, filter_col2, filter_col3 = st.columns(3)
         with filter_col1:
             filter_type = st.multiselect(
@@ -350,7 +497,6 @@ elif page == "Lead Profiles":
     if not profiles:
         st.info("No lead profiles yet — run a search first.")
     else:
-        # Summary table
         import pandas as pd
 
         table_data = [
@@ -373,16 +519,14 @@ elif page == "Lead Profiles":
 
         # Export
         st.divider()
-        col_exp1, col_exp2 = st.columns(2)
+        import json as _json
+
+        col_exp1, col_exp2, col_exp3 = st.columns(3)
         with col_exp1:
-            import json
             st.download_button(
                 "⬇️ Export profiles (JSON)",
-                data=json.dumps(
-                    [
-                        {k: v for k, v in p.items() if k != "posts"}
-                        for p in profiles
-                    ],
+                data=_json.dumps(
+                    [{k: v for k, v in p.items() if k != "posts"} for p in profiles],
                     indent=2,
                 ),
                 file_name="infros_lead_profiles.json",
@@ -400,6 +544,60 @@ elif page == "Lead Profiles":
                 file_name="infros_linkedin_queries.csv",
                 mime="text/csv",
             )
+        with col_exp3:
+            st.download_button(
+                "💾 Save full session (JSON)",
+                data=_session_json(),
+                file_name=f"infros_session_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                mime="application/json",
+                on_click=_mark_manual_save,
+                help="Download the full session including all posts and profiles.",
+            )
+
+
+# ===========================================================================
+# PAGE: Report
+# ===========================================================================
+
+elif page == "Report":
+    st.title("📋 Report & Insights")
+    st.markdown(
+        "An actionable summary of your search results with persona-specific "
+        "outreach recommendations."
+    )
+
+    analyzed_posts = st.session_state.analyzed_posts
+    lead_profiles = st.session_state.lead_profiles
+
+    if not analyzed_posts:
+        st.info("No data yet — run a search first.")
+    else:
+        # Generate (or use cached) report
+        regen_col, dl_col, _ = st.columns([1, 1, 3])
+        with regen_col:
+            if st.button("🔄 Regenerate report", help="Rebuild the report from current results"):
+                st.session_state._generated_report = None
+
+        if st.session_state._generated_report is None:
+            with st.spinner("Generating report…"):
+                st.session_state._generated_report = generate_report(
+                    analyzed_posts,
+                    lead_profiles,
+                    st.session_state._session_metadata,
+                )
+
+        report_md = st.session_state._generated_report
+
+        with dl_col:
+            st.download_button(
+                "⬇️ Download report (.md)",
+                data=report_md,
+                file_name=f"infros_report_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                mime="text/markdown",
+            )
+
+        st.divider()
+        st.markdown(report_md)
 
 
 # ===========================================================================
@@ -411,9 +609,7 @@ elif page == "Settings":
     st.markdown("Changes are saved to `config.yaml` and take effect on the next search.")
 
     cfg = st.session_state.config
-    changed = False
 
-    # ---- Tabs ----
     tab_api, tab_subs, tab_keywords, tab_topics, tab_search = st.tabs([
         "🔑 Reddit API",
         "📋 Subreddits",
