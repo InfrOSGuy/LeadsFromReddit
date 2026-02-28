@@ -50,6 +50,8 @@ def generate_report(
     pain_posts = [p for p in analyzed_posts if p.get("post_type") == "pain"]
     mixed_posts = [p for p in analyzed_posts if p.get("post_type") == "mixed"]
     solution_posts = [p for p in analyzed_posts if p.get("post_type") == "solution"]
+    evaluation_posts = [p for p in analyzed_posts if p.get("post_type") == "evaluation"]
+    hiring_signal_posts = [p for p in analyzed_posts if p.get("post_type") == "hiring_signal"]
     high_rel = [p for p in analyzed_posts if p.get("relevance_score", 0) >= 0.6]
 
     dates = sorted(p["created_date"] for p in analyzed_posts if p.get("created_date"))
@@ -80,9 +82,11 @@ def generate_report(
         "|--------|-------|",
         f"| Posts analysed | {total} |",
         f"| Date range | {date_range} |",
+        f"| Evaluation / comparison posts | {len(evaluation_posts)} ({len(evaluation_posts)/total:.0%}) |",
         f"| Pain posts | {len(pain_posts)} ({len(pain_posts)/total:.0%}) |",
         f"| Mixed (pain + solution signals) | {len(mixed_posts)} ({len(mixed_posts)/total:.0%}) |",
         f"| Solution posts | {len(solution_posts)} ({len(solution_posts)/total:.0%}) |",
+        f"| Hiring signal posts | {len(hiring_signal_posts)} ({len(hiring_signal_posts)/total:.0%}) |",
         f"| High-relevance posts (≥60%) | {len(high_rel)} |",
         f"| Lead profiles identified | {len(lead_profiles)} |",
         f"| Avg relevance score | {avg_score:.0%} |",
@@ -123,7 +127,7 @@ def generate_report(
 
     # ---- Hot Posts (quick-win signals) ----------------------------------------
     scored = sorted(
-        (p for p in analyzed_posts if p.get("post_type") in {"pain", "mixed"}),
+        (p for p in analyzed_posts if p.get("post_type") in {"pain", "mixed", "evaluation"}),
         key=lambda p: p.get("relevance_score", 0) * (1 + min(p.get("score", 0) / 100, 1)),
         reverse=True,
     )[:5]
@@ -186,23 +190,34 @@ def generate_report(
         seniority_filter = profile.get("seniority_filter", [])
         job_function = profile.get("job_function", "")
         headcount_ranges = profile.get("headcount_ranges", [])
+        linkedin_groups = profile.get("linkedin_groups", [])
+        competitors_seen = profile.get("competitors_seen", [])
+        buying_signal_count = profile.get("buying_signal_count", 0)
 
         angle = _suggest_outreach_angle(role, cloud, pain_summaries, tech)
         talking_points = _talking_points(role, cloud, pain_summaries, tech)
         spotlight_recs = _spotlight_recommendations(role, profile.get("company_sizes", []), pain_summaries)
-        inmail_subject, inmail_body = _inmail_template(role, cloud, pain_summaries, tech)
+        sequence = _outreach_sequence(role, cloud, pain_summaries, tech, competitors_seen)
 
+        eval_count = profile.get("post_type_counts", {}).get("evaluation", 0)
         lines += [
             f"### {i}. {role} — {cloud}",
             "",
             f"| Signal | Value |",
             f"|--------|-------|",
-            f"| Posts | {count} ({pain_count} pain, {mixed_count} mixed) |",
+            f"| Posts | {count} ({pain_count} pain · {mixed_count} mixed · {eval_count} evaluation) |",
             f"| Tech stack | {', '.join(tech[:6]) or '—'} |",
             f"| Company sizes | {sizes} |",
         ]
         if industries:
             lines.append(f"| Industries detected | {', '.join(industries[:3])} |")
+        if competitors_seen:
+            lines.append(f"| Competitor tools mentioned | {', '.join(competitors_seen[:4])} |")
+        if buying_signal_count:
+            lines.append(
+                f"| ⚡ Buying window posts | {buying_signal_count} of {count} "
+                "— contract renewal / trial / RFP signals detected |"
+            )
         lines.append("")
 
         if pain_summaries:
@@ -270,32 +285,61 @@ def generate_report(
                 lines.append(f"- `{q}` — [Search →]({url})")
             lines.append("")
 
+        # LinkedIn Groups
+        if linkedin_groups:
+            lines += [
+                "**LinkedIn Groups to filter by** *(self-identified practitioners — warmer than keyword search)*:",
+            ]
+            for g in linkedin_groups:
+                lines.append(f"- {g}")
+            lines.append("")
+
+        # Years in position tip
+        lines += [
+            "**'Years in current position' filter guidance:**",
+            "",
+            "- **0–1 year** → highest propensity; new leaders have mandate and budget to change tools",
+            "- **1–2 years** → still open to change, actively building their stack",
+            "- **3+ years** → harder sell; only approach if strong pain evidence in their activity",
+            "",
+        ]
+
+        # NOT exclusion tip
+        lines += [
+            "**Search quality tip — add NOT exclusions to remove noise:**",
+            "",
+            '`NOT "Junior" NOT "Intern" NOT "Recruiter" NOT "Talent Acquisition" NOT "Staffing"`',
+            "",
+        ]
+
         # ---- Sales Navigator: Account Search -------------------------------------
         if account_url:
             lines += [
                 "#### LinkedIn — Account Search (Companies)",
                 "",
-                "Find the right companies first, then look for decision-makers within them:",
+                "Find the right companies first, then target decision-makers within them:",
                 f"[Search matching companies →]({account_url})",
                 "",
                 "Account filters to apply: headcount ranges above · Engineering headcount growing · "
-                "Funding event in last 12 months",
+                "Funding event in last 12 months · Senior leadership change (last 3 months)",
                 "",
             ]
 
-        # ---- InMail template -----------------------------------------------------
+        # ---- 3-Touch Outreach Sequence -------------------------------------------
         lines += [
-            "#### InMail Template",
-            "",
-            f"**Subject:** {inmail_subject}",
-            "",
-            "**Body:**",
+            "#### 3-Touch Outreach Sequence",
             "",
         ]
-        for line in inmail_body.split("\n"):
-            lines.append(f"> {line}" if line else ">")
+        for step in sequence:
+            lines += [
+                f"**{step['label']}** *({step['limit']})*",
+                "",
+            ]
+            for line in step["text"].split("\n"):
+                lines.append(f"> {line}" if line else ">")
+            lines.append("")
+
         lines += [
-            "",
             "---",
             "",
         ]
@@ -383,6 +427,134 @@ def generate_report(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _outreach_sequence(
+    role: str,
+    cloud: str,
+    pain_summaries: list[str],
+    tech: list[str],
+    competitors: list[str],
+) -> list[dict]:
+    """Return a 3-step outreach sequence as [{label, limit, text}, ...].
+
+    Each message is kept short (≤300 chars) to fit LinkedIn connection notes
+    and direct messages. Placeholders in [brackets] must be filled before sending.
+    """
+    pain_text = " ".join(pain_summaries).lower()
+    cloud_ref = f"{cloud} " if cloud and cloud != "Multi-Cloud" else ""
+    competitor_ref = f" (like {competitors[0]})" if competitors else ""
+
+    # Determine primary pain theme
+    if any(w in pain_text for w in ("cost", "bill", "spend", "expensive")):
+        theme = "cost"
+    elif any(w in pain_text for w in ("terraform", "state", "drift")):
+        theme = "terraform"
+    elif "kubernetes" in [t.lower() for t in tech] or "k8s" in pain_text:
+        theme = "kubernetes"
+    elif any(w in pain_text for w in ("manual", "automat", "slow", "toil")):
+        theme = "automation"
+    elif "FinOps" in role or "Cloud Economics" in role:
+        theme = "finops"
+    else:
+        theme = "infra"
+
+    # Step 1: Connection request note (≤300 chars)
+    connect_map = {
+        "cost": (
+            f"Hi [Name] — your {cloud_ref}background caught my eye. "
+            f"We help {cloud_ref}infra teams get cloud costs under control without a big rethink. "
+            "Would love to connect and compare notes."
+        ),
+        "terraform": (
+            f"Hi [Name] — saw your {cloud_ref}infra work. "
+            "Building tools around Terraform state and drift prevention — "
+            "would love to connect and swap learnings."
+        ),
+        "kubernetes": (
+            f"Hi [Name] — looks like you're navigating {cloud_ref}K8s operations. "
+            "We help platform teams cut cluster toil significantly — would be good to connect."
+        ),
+        "finops": (
+            "Hi [Name] — your FinOps background is exactly the space we work in. "
+            "Connecting to share what we're seeing across cloud cost optimisation teams."
+        ),
+        "automation": (
+            f"Hi [Name] — your {cloud_ref}platform work caught my eye. "
+            "We're focused on reducing infra toil for engineering teams — would love to connect."
+        ),
+        "infra": (
+            f"Hi [Name] — your {cloud_ref}infrastructure experience stood out. "
+            "We're working on reducing operational toil for platform teams — would love to connect."
+        ),
+    }
+
+    # Step 2: First message after connecting — value-add, no hard sell (≤300 chars)
+    follow1_map = {
+        "cost": (
+            "Thanks for connecting, [Name]! "
+            f"We just put together a breakdown of how {cloud_ref}teams are cutting cloud spend by 20–35% "
+            "in 90 days — happy to share it if relevant to what you're managing."
+        ),
+        "terraform": (
+            "Thanks for connecting! Put together a short guide on preventing Terraform drift "
+            "before it causes incidents — happy to share if it's relevant to your setup."
+        ),
+        "kubernetes": (
+            "Thanks for connecting! Wrote up how teams are cutting K8s on-call load "
+            "with self-healing policies — happy to share if useful for your team."
+        ),
+        "finops": (
+            "Thanks for connecting! Wrote up a FinOps chargeback framework "
+            "that doesn't require a massive ops lift — happy to share if relevant."
+        ),
+        "automation": (
+            "Thanks for connecting, [Name]! "
+            "Put together a piece on where platform teams lose the most time to infra toil — "
+            "happy to share if useful."
+        ),
+        "infra": (
+            "Thanks for connecting, [Name]! "
+            "Wrote a short piece on the biggest infrastructure bottlenecks for "
+            f"{cloud_ref}teams right now — happy to share if useful."
+        ),
+    }
+
+    # Step 3: Follow-up if no reply after 5–7 days (≤300 chars)
+    if competitors:
+        followup = (
+            f"Hey [Name], just following up. Given you're likely evaluating options{competitor_ref}, "
+            "happy to do a quick 15-min comparison call if that'd help make the decision easier."
+        )
+    elif theme == "cost":
+        followup = (
+            "Hey [Name], just checking in — did the cost visibility content land? "
+            f"Also happy to just answer questions about what we're seeing across {cloud_ref}teams."
+        )
+    else:
+        followup = (
+            "Hey [Name], quick follow-up — "
+            "happy to keep it to 15 minutes if you want to see whether InfrOS is relevant "
+            "to what your team is dealing with."
+        )
+
+    return [
+        {
+            "label": "1. Connection request note",
+            "limit": "≤300 chars",
+            "text": connect_map.get(theme, connect_map["infra"]),
+        },
+        {
+            "label": "2. First message (after connecting)",
+            "limit": "≤300 chars — value-add, no hard sell",
+            "text": follow1_map.get(theme, follow1_map["infra"]),
+        },
+        {
+            "label": "3. Follow-up if no reply (after 5–7 days)",
+            "limit": "≤300 chars",
+            "text": followup,
+        },
+    ]
+
 
 def _inmail_template(
     role: str,

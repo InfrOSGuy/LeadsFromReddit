@@ -1,6 +1,7 @@
 """
-Analyzer — extracts pain-point signals, role signals, tech-stack signals, and
-company-size signals from Reddit post text using rule-based pattern matching.
+Analyzer — extracts pain-point signals, role signals, tech-stack signals,
+company-size, industry, evaluation-intent, competitor, buying-window, and
+hiring signals from Reddit post text using rule-based pattern matching.
 
 Deliberately does NOT identify or store individual users.  The output is
 aggregated "prospect persona" data useful for LinkedIn search targeting.
@@ -81,25 +82,6 @@ COMPANY_SIZE_PATTERNS: dict[str, list[str]] = {
     ],
 }
 
-PAIN_PATTERNS: list[str] = [
-    r"struggling with", r"can'?t figure out", r"\bfrustrat", r"\bnightmare\b",
-    r"\bheadache\b", r"pain point", r"problem with", r"issue with",
-    r"spending too much", r"costs? (are|is) (out of control|too high|killing us)",
-    r"taking (too long|months|forever)", r"manual process", r"can'?t keep up",
-    r"\bstuck\b", r"breaking point", r"inefficient", r"\bwasted\b",
-    r"hard to (maintain|manage|scale|deploy)", r"overwhelm",
-    r"doesn'?t scale", r"technical debt", r"months of work",
-    r"help.*(with|on|for)", r"how do (i|we|you)", r"\bhelp\b.*\?",
-]
-
-SOLUTION_PATTERNS: list[str] = [
-    r"we (solved|fixed|migrated|switched|moved|chose)",
-    r"(works|worked) (for us|great|well)", r"recommend(ed)?",
-    r"saved us", r"reduced (our|costs?|spend|bill)",
-    r"cut (our|costs?|spend)", r"improved (our|performance|speed)",
-    r"our solution", r"switched to", r"we use",
-]
-
 INDUSTRY_PATTERNS: dict[str, list[str]] = {
     "Computer Software / SaaS": [
         r"\bsaas\b", r"\bb2b\b", r"\bsoftware company\b", r"\bsoftware startup\b",
@@ -137,7 +119,85 @@ INDUSTRY_PATTERNS: dict[str, list[str]] = {
     ],
 }
 
-# LinkedIn role → search term mapping
+PAIN_PATTERNS: list[str] = [
+    r"struggling with", r"can'?t figure out", r"\bfrustrat", r"\bnightmare\b",
+    r"\bheadache\b", r"pain point", r"problem with", r"issue with",
+    r"spending too much", r"costs? (are|is) (out of control|too high|killing us)",
+    r"taking (too long|months|forever)", r"manual process", r"can'?t keep up",
+    r"\bstuck\b", r"breaking point", r"inefficient", r"\bwasted\b",
+    r"hard to (maintain|manage|scale|deploy)", r"overwhelm",
+    r"doesn'?t scale", r"technical debt", r"months of work",
+    r"help.*(with|on|for)", r"how do (i|we|you)", r"\bhelp\b.*\?",
+]
+
+SOLUTION_PATTERNS: list[str] = [
+    r"we (solved|fixed|migrated|switched|moved|chose)",
+    r"(works|worked) (for us|great|well)", r"recommend(ed)?",
+    r"saved us", r"reduced (our|costs?|spend|bill)",
+    r"cut (our|costs?|spend)", r"improved (our|performance|speed)",
+    r"our solution", r"switched to", r"we use",
+]
+
+# Active evaluation / tool comparison — highest buying-intent signal
+EVALUATION_PATTERNS: list[str] = [
+    r"\bvs\.?\b", r"\bversus\b",
+    r"\bcompar(e|ing|ison)\b",
+    r"\balternatives? to\b", r"\blooking for alternatives?\b",
+    r"\bwhich (is|would|should|do)\b",
+    r"\bshould (i|we) (use|choose|go with)\b",
+    r"\b(best|better) (option|choice|tool|solution|platform|approach)\b",
+    r"\bevaluat(e|ing|ed)\b",
+    r"\banyone (tried|using|recommend)\b",
+    r"\bthoughts? on\b", r"\bpros? (and|&) cons?\b",
+    r"\bopen (to|for) (suggestions?|recommendations?)\b",
+]
+
+# Competing or adjacent tools — signals the person is actively in-market
+COMPETITOR_PATTERNS: dict[str, list[str]] = {
+    "Spacelift": [r"\bspacelift\b"],
+    "Scalr": [r"\bscalr\b"],
+    "Env0": [r"\benv0\b"],
+    "Atlantis": [r"\batlantis\b"],
+    "Terraform Cloud / HCP": [r"\bterraform cloud\b", r"\bhcp terraform\b", r"\btfc\b"],
+    "Pulumi Cloud": [r"\bpulumi cloud\b"],
+    "CloudHealth": [r"\bcloudhealth\b"],
+    "Apptio": [r"\bapptio\b"],
+    "Kubecost": [r"\bkubecost\b"],
+    "Infracost": [r"\binfracost\b"],
+    "Spot.io": [r"\bspot\.io\b", r"\bspot by netapp\b"],
+    "AWS Cost Explorer": [r"\bcost explorer\b"],
+    "Datadog": [r"\bdatadog\b"],
+    "Grafana Cloud": [r"\bgrafana cloud\b"],
+}
+
+# Active buying window signals — contract renewal, trial, budget, RFP
+BUYING_SIGNAL_PATTERNS: list[str] = [
+    r"\brenewal\b", r"\bcontract (end|expir|up for renewal)\b",
+    r"\blooking for alternatives?\b",
+    r"\bopen to (suggestions?|alternatives?|tools?|solutions?)\b",
+    r"\bevaluat(e|ing|ed) (options?|tools?|vendors?|solutions?)\b",
+    r"\bpoc\b", r"\bproof of concept\b",
+    r"\btrial(ing|led)?\b",
+    r"\bnew budget\b", r"\bbudget (for|to|approval)\b",
+    r"\bjust (got|raised|closed) (fund|series|seed|round)\b",
+    r"\bseries [abcde]\b",
+    r"\brfp\b", r"\brequest for (proposal|quote)\b",
+    r"\bin the market for\b", r"\bshopping for\b",
+]
+
+# Scaling / hiring signals — leading indicator of future infra pain
+HIRING_PATTERNS: list[str] = [
+    r"\bhiring\b.*\b(devops|sre|platform|infra|cloud)\b",
+    r"\b(devops|sre|platform|infra|cloud)\b.*\bhiring\b",
+    r"\blooking to hire\b",
+    r"\bwe.?re (growing|scaling)\b.*\bteam\b",
+    r"\bscaling (the|our) (team|engineering|infra)\b",
+]
+
+# ---------------------------------------------------------------------------
+# LinkedIn search mappings
+# ---------------------------------------------------------------------------
+
 _LINKEDIN_ROLE_TERMS: dict[str, str] = {
     "DevOps / Platform Engineer": (
         'DevOps OR "Platform Engineer" OR "Infrastructure Engineer" OR SRE OR "Cloud Engineer"'
@@ -162,8 +222,7 @@ _LINKEDIN_ROLE_TERMS: dict[str, str] = {
     ),
 }
 
-# Alternative title sets per role — run these as separate searches to reach
-# different title buckets within the same persona.
+# Alternative title searches — reach different title buckets within the same persona
 _LINKEDIN_ROLE_VARIANTS: dict[str, list[str]] = {
     "DevOps / Platform Engineer": [
         '"Cloud Operations Engineer" OR CloudOps OR "Cloud Reliability Engineer"',
@@ -216,11 +275,25 @@ _FUNCTION_MAP: dict[str, str] = {
     "Technical Professional": "Engineering",
 }
 
-# Sales Navigator headcount ranges per company size
+# Sales Navigator headcount ranges per detected company size
 _HEADCOUNT_MAP: dict[str, list[str]] = {
     "Startup": ["1-10", "11-50", "51-200"],
     "Scale-up / Mid-size": ["201-500", "501-1,000", "1,001-5,000"],
     "Enterprise": ["5,001-10,000", "10,001+"],
+}
+
+# LinkedIn Groups by tech/role — self-identified practitioners, warmer than keyword search
+_LINKEDIN_GROUPS: dict[str, list[str]] = {
+    "AWS": ["Amazon Web Services (AWS) Users", "AWS Cloud Practitioners"],
+    "Azure": ["Microsoft Azure", "Azure DevOps & Cloud Architects"],
+    "GCP": ["Google Cloud Platform (GCP)", "Google Cloud Users Community"],
+    "Terraform": ["HashiCorp User Group", "Terraform IaC Community"],
+    "Kubernetes": ["Kubernetes Community (CNCF)", "Kubernetes & Cloud Native"],
+    "DevOps / Platform Engineer": ["DevOps Engineers", "Platform Engineering Community"],
+    "FinOps / Cloud Economics": ["FinOps Foundation", "Cloud FinOps & Cost Optimization"],
+    "Engineering Manager": ["Engineering Leadership", "CTO Craft Community"],
+    "CTO / VP Engineering": ["CTO Craft Community", "Technology Executives Network"],
+    "Cloud Architect": ["Cloud Architecture", "Enterprise Architecture Network"],
 }
 
 
@@ -238,17 +311,29 @@ def analyze_post(post: dict) -> dict:
     industries = _extract(text, INDUSTRY_PATTERNS)
     pain_signals = _match_list(text, PAIN_PATTERNS)
     solution_signals = _match_list(text, SOLUTION_PATTERNS)
+    evaluation_signals = _match_list(text, EVALUATION_PATTERNS)
+    competitors_mentioned = _extract(text, COMPETITOR_PATTERNS)
+    buying_signals = _match_list(text, BUYING_SIGNAL_PATTERNS)
+    hiring_signals = _match_list(text, HIRING_PATTERNS)
 
-    if pain_signals and not solution_signals:
+    # Post type priority: evaluation > pain > mixed > solution > hiring_signal > discussion
+    if evaluation_signals:
+        post_type = "evaluation"
+    elif pain_signals and not solution_signals:
         post_type = "pain"
     elif solution_signals and not pain_signals:
         post_type = "solution"
     elif pain_signals and solution_signals:
         post_type = "mixed"
+    elif hiring_signals:
+        post_type = "hiring_signal"
     else:
         post_type = "discussion"
 
-    relevance_score = _score(post, roles, tech_stack, pain_signals, solution_signals)
+    relevance_score = _score(
+        post, roles, tech_stack, pain_signals, solution_signals,
+        evaluation_signals, buying_signals, competitors_mentioned, hiring_signals,
+    )
 
     return {
         **post,
@@ -258,6 +343,10 @@ def analyze_post(post: dict) -> dict:
         "industries": industries,
         "pain_signals": pain_signals,
         "solution_signals": solution_signals,
+        "evaluation_signals": evaluation_signals,
+        "competitors_mentioned": competitors_mentioned,
+        "buying_signals": buying_signals,
+        "hiring_signals": hiring_signals,
         "post_type": post_type,
         "relevance_score": round(relevance_score, 2),
         "pain_summary": _summarise(post, tech_stack),
@@ -296,20 +385,32 @@ def build_lead_profiles(analyzed_posts: list[dict]) -> list[dict]:
                 "tech_stack": set(),
                 "company_sizes": set(),
                 "industries": set(),
+                "competitors_seen": set(),
                 "pain_summaries": [],
                 "sample_titles": [],
                 "post_count": 0,
                 "total_score": 0,
-                "post_type_counts": {"pain": 0, "solution": 0, "mixed": 0, "discussion": 0},
+                "buying_signal_count": 0,
+                "post_type_counts": {
+                    "evaluation": 0, "pain": 0, "solution": 0,
+                    "mixed": 0, "hiring_signal": 0, "discussion": 0,
+                },
             }
 
         p = bucket[key]
         p["tech_stack"].update(tech)
         p["company_sizes"].update(post.get("company_size", []))
         p["industries"].update(post.get("industries", []))
+        p["competitors_seen"].update(post.get("competitors_mentioned", []))
         p["post_count"] += 1
         p["total_score"] += post.get("score", 0)
-        p["post_type_counts"][post.get("post_type", "discussion")] += 1
+        if post.get("buying_signals"):
+            p["buying_signal_count"] += 1
+        post_type = post.get("post_type", "discussion")
+        if post_type in p["post_type_counts"]:
+            p["post_type_counts"][post_type] += 1
+        else:
+            p["post_type_counts"]["discussion"] += 1
 
         summary = post.get("pain_summary", "")
         if summary and summary not in p["pain_summaries"]:
@@ -324,6 +425,7 @@ def build_lead_profiles(analyzed_posts: list[dict]) -> list[dict]:
         profile["tech_stack"] = sorted(profile["tech_stack"])
         profile["company_sizes"] = sorted(profile["company_sizes"])
         profile["industries"] = sorted(profile["industries"])
+        profile["competitors_seen"] = sorted(profile["competitors_seen"])
         profile["pain_summaries"] = profile["pain_summaries"][:8]
         profile["linkedin_query"] = _build_linkedin_query(profile)
         profile["linkedin_url"] = _build_linkedin_url(profile)
@@ -332,6 +434,7 @@ def build_lead_profiles(analyzed_posts: list[dict]) -> list[dict]:
         profile["seniority_filter"] = _SENIORITY_MAP.get(profile["role"], ["Senior"])
         profile["job_function"] = _FUNCTION_MAP.get(profile["role"], "Engineering")
         profile["headcount_ranges"] = _derive_headcount_ranges(profile["company_sizes"])
+        profile["linkedin_groups"] = _build_linkedin_groups(profile)
         profiles.append(profile)
 
     profiles.sort(key=lambda p: p["post_count"], reverse=True)
@@ -417,6 +520,32 @@ def _derive_headcount_ranges(company_sizes: list[str]) -> list[str]:
     return ranges
 
 
+def _build_linkedin_groups(profile: dict) -> list[str]:
+    """Compile relevant LinkedIn Groups based on tech stack and role."""
+    groups: list[str] = []
+    seen: set[str] = set()
+
+    def _add(items: list[str]) -> None:
+        for g in items:
+            if g not in seen:
+                seen.add(g)
+                groups.append(g)
+
+    cloud = profile.get("cloud_platform", "")
+    if cloud and cloud != "Multi-Cloud":
+        _add(_LINKEDIN_GROUPS.get(cloud, []))
+
+    for tech in profile.get("tech_stack", []):
+        if tech in _LINKEDIN_GROUPS:
+            _add(_LINKEDIN_GROUPS[tech])
+
+    role = profile.get("role", "")
+    if role in _LINKEDIN_GROUPS:
+        _add(_LINKEDIN_GROUPS[role])
+
+    return groups[:6]
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -442,28 +571,78 @@ def _match_list(text: str, patterns: list[str]) -> list[str]:
     return found[:6]
 
 
-def _score(post: dict, roles, tech_stack, pain_signals, solution_signals) -> float:
+def _score(
+    post: dict,
+    roles: list,
+    tech_stack: list,
+    pain_signals: list,
+    solution_signals: list,
+    evaluation_signals: Optional[list] = None,
+    buying_signals: Optional[list] = None,
+    competitors_mentioned: Optional[list] = None,
+    hiring_signals: Optional[list] = None,
+) -> float:
     s = 0.0
+
+    # Evaluation intent — active comparison is the highest buying-intent signal
+    if evaluation_signals:
+        s += 0.25
+    # Buying window — contract renewal, trial, RFP, POC
+    if buying_signals:
+        s += 0.20
+    # Competitor mentions — named a tool = actively in-market
+    if competitors_mentioned:
+        s += 0.10
+    # Hiring signal — scaling team = future infra pain
+    if hiring_signals:
+        s += 0.08
+
+    # Pain signals
     if pain_signals:
-        s += 0.30
-    if solution_signals:
-        s += 0.15
+        s += 0.25
+    if len(pain_signals) > 2:
+        s += 0.05  # multiple pain phrases = deeper, more urgent pain
+
+    # Solution signals (less valuable for us, but still relevant context)
+    if solution_signals and not pain_signals:
+        s += 0.08
+    elif solution_signals and pain_signals:
+        s += 0.03
+
+    # Tech stack match
     cloud_hit = bool({"AWS", "Azure", "GCP"} & set(tech_stack))
     if cloud_hit:
-        s += 0.20
+        s += 0.15
     if "Terraform" in tech_stack:
-        s += 0.10
+        s += 0.08
     if "Kubernetes" in tech_stack:
         s += 0.05
+
+    # Role match
     if roles:
+        s += 0.08
+
+    # Community engagement — proxy for widespread pain (not just one person)
+    score = post.get("score", 0)
+    if score > 100:
         s += 0.10
-    if post.get("score", 0) > 30:
+    elif score > 30:
         s += 0.05
-    if post.get("num_comments", 0) > 10:
-        s += 0.05
+    elif score > 10:
+        s += 0.02
+
+    num_comments = post.get("num_comments", 0)
+    if num_comments > 30:
+        s += 0.07
+    elif num_comments > 10:
+        s += 0.04
+
     body_len = len(post.get("body") or "")
-    if body_len > 200:
+    if body_len > 500:
         s += 0.05
+    elif body_len > 200:
+        s += 0.03
+
     return min(s, 1.0)
 
 
