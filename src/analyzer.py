@@ -100,6 +100,43 @@ SOLUTION_PATTERNS: list[str] = [
     r"our solution", r"switched to", r"we use",
 ]
 
+INDUSTRY_PATTERNS: dict[str, list[str]] = {
+    "Computer Software / SaaS": [
+        r"\bsaas\b", r"\bb2b\b", r"\bsoftware company\b", r"\bsoftware startup\b",
+        r"\bproduct company\b", r"\btech company\b", r"\btech startup\b",
+        r"\bproduct.led\b",
+    ],
+    "Financial Services / FinTech": [
+        r"\bfintech\b", r"\bbanking\b", r"\bfinancial services\b", r"\bpayments?\b",
+        r"\binsurance\b", r"\binvestment\b", r"\btrading platform\b", r"\bcrypto\b",
+        r"\bneobank\b",
+    ],
+    "E-commerce / Retail": [
+        r"\becommerce\b", r"\be.commerce\b", r"\bshopify\b", r"\bretail\b",
+        r"\bonline store\b", r"\bmarketplace\b", r"\bd2c\b",
+    ],
+    "Healthcare / MedTech": [
+        r"\bhealthcare\b", r"\bhealth.?tech\b", r"\bhospital\b", r"\bhipaa\b",
+        r"\bmedical\b", r"\bpharmaceutical\b", r"\bclinical\b", r"\bmedtech\b",
+    ],
+    "Media / Entertainment / Gaming": [
+        r"\bmedia company\b", r"\bstreaming\b", r"\bcontent platform\b",
+        r"\bgaming\b", r"\bgame studio\b", r"\bentertainment\b", r"\bvideo platform\b",
+    ],
+    "Government / Public Sector": [
+        r"\bgovernment\b", r"\bfederal\b", r"\bpublic sector\b",
+        r"\bdod\b", r"\bdefense\b", r"\bgovtech\b",
+    ],
+    "Consulting / IT Services / MSP": [
+        r"\bconsulting\b", r"\bmanaged service\b", r"\bmsp\b",
+        r"\bsystem integrator\b", r"\bclient work\b", r"\bprofessional services\b",
+    ],
+    "Cybersecurity": [
+        r"\bcybersecurity\b", r"\bsecurity company\b", r"\binfosec\b",
+        r"\bsoc\b", r"\bthreat detection\b", r"\bsecurity vendor\b",
+    ],
+}
+
 # LinkedIn role → search term mapping
 _LINKEDIN_ROLE_TERMS: dict[str, str] = {
     "DevOps / Platform Engineer": (
@@ -125,6 +162,67 @@ _LINKEDIN_ROLE_TERMS: dict[str, str] = {
     ),
 }
 
+# Alternative title sets per role — run these as separate searches to reach
+# different title buckets within the same persona.
+_LINKEDIN_ROLE_VARIANTS: dict[str, list[str]] = {
+    "DevOps / Platform Engineer": [
+        '"Cloud Operations Engineer" OR CloudOps OR "Cloud Reliability Engineer"',
+        '"Head of Platform" OR "Principal Infrastructure Engineer" OR "Staff Platform Engineer"',
+    ],
+    "Cloud Architect": [
+        '"Principal Architect" OR "Distinguished Engineer" OR "Cloud Practice Lead"',
+        '"Head of Cloud" OR "Director of Architecture"',
+    ],
+    "Engineering Manager": [
+        '"Head of Infrastructure" OR "Head of Platform Engineering" OR "Director of Cloud"',
+        '"Tech Lead Manager" OR "Group Engineering Manager" OR "Engineering Lead"',
+    ],
+    "CTO / VP Engineering": [
+        '"Chief Infrastructure Officer" OR "VP of Technology" OR "CIO"',
+    ],
+    "FinOps / Cloud Economics": [
+        '"Cloud Financial Analyst" OR "Cloud Cost Analyst" OR "Cloud Billing Analyst"',
+        '"Head of FinOps" OR "Director of Cloud Finance" OR "Principal FinOps"',
+    ],
+    "Systems / IT Admin": [
+        '"Cloud Administrator" OR "Infrastructure Administrator" OR "IT Operations"',
+    ],
+    "Software Engineer": [
+        '"Platform Engineer" OR "Infrastructure Software Engineer" OR "Cloud Native Engineer"',
+    ],
+}
+
+# Sales Navigator seniority level values per role
+_SENIORITY_MAP: dict[str, list[str]] = {
+    "DevOps / Platform Engineer": ["Senior", "Manager"],
+    "Cloud Architect": ["Senior", "Director"],
+    "Engineering Manager": ["Manager", "Director"],
+    "CTO / VP Engineering": ["VP", "CXO"],
+    "FinOps / Cloud Economics": ["Senior", "Manager", "Director"],
+    "Systems / IT Admin": ["Senior"],
+    "Software Engineer": ["Senior"],
+    "Technical Professional": ["Senior"],
+}
+
+# Sales Navigator job function per role
+_FUNCTION_MAP: dict[str, str] = {
+    "DevOps / Platform Engineer": "Engineering",
+    "Cloud Architect": "Engineering",
+    "Engineering Manager": "Engineering",
+    "CTO / VP Engineering": "Engineering",
+    "FinOps / Cloud Economics": "Finance",
+    "Systems / IT Admin": "Information Technology",
+    "Software Engineer": "Engineering",
+    "Technical Professional": "Engineering",
+}
+
+# Sales Navigator headcount ranges per company size
+_HEADCOUNT_MAP: dict[str, list[str]] = {
+    "Startup": ["1-10", "11-50", "51-200"],
+    "Scale-up / Mid-size": ["201-500", "501-1,000", "1,001-5,000"],
+    "Enterprise": ["5,001-10,000", "10,001+"],
+}
+
 
 # ---------------------------------------------------------------------------
 # Per-post analysis
@@ -137,6 +235,7 @@ def analyze_post(post: dict) -> dict:
     roles = _extract(text, ROLE_PATTERNS)
     tech_stack = _extract(text, TECH_PATTERNS)
     company_size = _extract(text, COMPANY_SIZE_PATTERNS)
+    industries = _extract(text, INDUSTRY_PATTERNS)
     pain_signals = _match_list(text, PAIN_PATTERNS)
     solution_signals = _match_list(text, SOLUTION_PATTERNS)
 
@@ -156,6 +255,7 @@ def analyze_post(post: dict) -> dict:
         "roles": roles,
         "tech_stack": tech_stack,
         "company_size": company_size,
+        "industries": industries,
         "pain_signals": pain_signals,
         "solution_signals": solution_signals,
         "post_type": post_type,
@@ -195,6 +295,7 @@ def build_lead_profiles(analyzed_posts: list[dict]) -> list[dict]:
                 "cloud_platform": primary_cloud,
                 "tech_stack": set(),
                 "company_sizes": set(),
+                "industries": set(),
                 "pain_summaries": [],
                 "sample_titles": [],
                 "post_count": 0,
@@ -205,6 +306,7 @@ def build_lead_profiles(analyzed_posts: list[dict]) -> list[dict]:
         p = bucket[key]
         p["tech_stack"].update(tech)
         p["company_sizes"].update(post.get("company_size", []))
+        p["industries"].update(post.get("industries", []))
         p["post_count"] += 1
         p["total_score"] += post.get("score", 0)
         p["post_type_counts"][post.get("post_type", "discussion")] += 1
@@ -221,9 +323,15 @@ def build_lead_profiles(analyzed_posts: list[dict]) -> list[dict]:
     for profile in bucket.values():
         profile["tech_stack"] = sorted(profile["tech_stack"])
         profile["company_sizes"] = sorted(profile["company_sizes"])
+        profile["industries"] = sorted(profile["industries"])
         profile["pain_summaries"] = profile["pain_summaries"][:8]
         profile["linkedin_query"] = _build_linkedin_query(profile)
         profile["linkedin_url"] = _build_linkedin_url(profile)
+        profile["linkedin_query_variants"] = _build_linkedin_query_variants(profile)
+        profile["account_url"] = _build_account_url(profile)
+        profile["seniority_filter"] = _SENIORITY_MAP.get(profile["role"], ["Senior"])
+        profile["job_function"] = _FUNCTION_MAP.get(profile["role"], "Engineering")
+        profile["headcount_ranges"] = _derive_headcount_ranges(profile["company_sizes"])
         profiles.append(profile)
 
     profiles.sort(key=lambda p: p["post_count"], reverse=True)
@@ -257,7 +365,56 @@ def _build_linkedin_query(profile: dict) -> str:
 def _build_linkedin_url(profile: dict) -> str:
     query = _build_linkedin_query(profile)
     encoded = urllib.parse.quote(query)
-    return f"https://www.linkedin.com/search/results/people/?keywords={encoded}"
+    return f"https://www.linkedin.com/sales/search/people?keywords={encoded}"
+
+
+def _build_linkedin_query_variants(profile: dict) -> list[tuple[str, str]]:
+    """Return [(query_string, url), ...] for alternative title searches."""
+    role = profile.get("role", "")
+    cloud = profile.get("cloud_platform", "")
+    cloud_suffix = f" {cloud}" if cloud and cloud != "Multi-Cloud" else ""
+    results = []
+    for variant_titles in _LINKEDIN_ROLE_VARIANTS.get(role, []):
+        q = f"({variant_titles}){cloud_suffix}"
+        url = f"https://www.linkedin.com/sales/search/people?keywords={urllib.parse.quote(q)}"
+        results.append((q, url))
+    return results
+
+
+def _build_account_url(profile: dict) -> str:
+    """Return a Sales Navigator company search URL for targeting the right accounts."""
+    cloud = profile.get("cloud_platform", "")
+    tech = profile.get("tech_stack", [])
+    role = profile.get("role", "")
+
+    parts: list[str] = []
+    if cloud and cloud != "Multi-Cloud":
+        parts.append(cloud)
+    extra_tech = [
+        t for t in tech
+        if t not in {"AWS", "Azure", "GCP"}
+        and t in {"Terraform", "Kubernetes", "Pulumi", "Ansible"}
+    ]
+    parts.extend(extra_tech[:2])
+    if "FinOps" in role or "Cloud Economics" in role:
+        parts.append("cloud cost")
+    if not parts:
+        parts = ["cloud infrastructure"]
+
+    encoded = urllib.parse.quote(" ".join(parts))
+    return f"https://www.linkedin.com/sales/search/company?keywords={encoded}"
+
+
+def _derive_headcount_ranges(company_sizes: list[str]) -> list[str]:
+    """Map detected company sizes to Sales Navigator headcount range strings."""
+    seen: set[str] = set()
+    ranges: list[str] = []
+    for size in company_sizes:
+        for r in _HEADCOUNT_MAP.get(size, []):
+            if r not in seen:
+                seen.add(r)
+                ranges.append(r)
+    return ranges
 
 
 # ---------------------------------------------------------------------------

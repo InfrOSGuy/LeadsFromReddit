@@ -176,13 +176,21 @@ def generate_report(
         mixed_count = profile.get("post_type_counts", {}).get("mixed", 0)
         tech = profile.get("tech_stack", [])
         sizes = ", ".join(profile.get("company_sizes", [])) or "all sizes"
+        industries = profile.get("industries", [])
         pain_summaries = profile.get("pain_summaries", [])[:6]
         sample_titles = profile.get("sample_titles", [])[:3]
         linkedin_query = profile.get("linkedin_query", "")
         linkedin_url = profile.get("linkedin_url", "")
+        query_variants = profile.get("linkedin_query_variants", [])
+        account_url = profile.get("account_url", "")
+        seniority_filter = profile.get("seniority_filter", [])
+        job_function = profile.get("job_function", "")
+        headcount_ranges = profile.get("headcount_ranges", [])
 
         angle = _suggest_outreach_angle(role, cloud, pain_summaries, tech)
         talking_points = _talking_points(role, cloud, pain_summaries, tech)
+        spotlight_recs = _spotlight_recommendations(role, profile.get("company_sizes", []), pain_summaries)
+        inmail_subject, inmail_body = _inmail_template(role, cloud, pain_summaries, tech)
 
         lines += [
             f"### {i}. {role} — {cloud}",
@@ -192,8 +200,10 @@ def generate_report(
             f"| Posts | {count} ({pain_count} pain, {mixed_count} mixed) |",
             f"| Tech stack | {', '.join(tech[:6]) or '—'} |",
             f"| Company sizes | {sizes} |",
-            "",
         ]
+        if industries:
+            lines.append(f"| Industries detected | {', '.join(industries[:3])} |")
+        lines.append("")
 
         if pain_summaries:
             lines.append("**Observed pain themes:**")
@@ -218,9 +228,73 @@ def generate_report(
                 lines.append(f"- {tp}")
             lines.append("")
 
+        # ---- Sales Navigator: Lead Search ----------------------------------------
         lines += [
-            f"**LinkedIn search:** `{linkedin_query}`",
-            f"[Open LinkedIn search →]({linkedin_url})",
+            "#### LinkedIn — Lead Search (People)",
+            "",
+            f"**Primary search:** `{linkedin_query}`",
+            f"[Open in Sales Navigator →]({linkedin_url})",
+            "",
+        ]
+
+        # Filter panel
+        lines += [
+            "**Sales Navigator filters to apply manually:**",
+            "",
+            "| Filter | Values |",
+            "|--------|--------|",
+        ]
+        if seniority_filter:
+            lines.append(f"| Seniority level | {', '.join(seniority_filter)} |")
+        if job_function:
+            lines.append(f"| Job function | {job_function} |")
+        if headcount_ranges:
+            lines.append(f"| Company headcount | {', '.join(headcount_ranges)} |")
+        if industries:
+            lines.append(f"| Industry | {' / '.join(industries[:2])} |")
+        lines.append("")
+
+        # Spotlight filters
+        if spotlight_recs:
+            lines.append("**Spotlight filters to layer on** *(narrows to warm, high-intent leads)*:")
+            for rec in spotlight_recs:
+                lines.append(f"- {rec}")
+            lines.append("")
+
+        # Alternative search variants
+        if query_variants:
+            lines.append(
+                "**Alternative title searches** *(run separately to reach different title buckets)*:"
+            )
+            for q, url in query_variants:
+                lines.append(f"- `{q}` — [Search →]({url})")
+            lines.append("")
+
+        # ---- Sales Navigator: Account Search -------------------------------------
+        if account_url:
+            lines += [
+                "#### LinkedIn — Account Search (Companies)",
+                "",
+                "Find the right companies first, then look for decision-makers within them:",
+                f"[Search matching companies →]({account_url})",
+                "",
+                "Account filters to apply: headcount ranges above · Engineering headcount growing · "
+                "Funding event in last 12 months",
+                "",
+            ]
+
+        # ---- InMail template -----------------------------------------------------
+        lines += [
+            "#### InMail Template",
+            "",
+            f"**Subject:** {inmail_subject}",
+            "",
+            "**Body:**",
+            "",
+        ]
+        for line in inmail_body.split("\n"):
+            lines.append(f"> {line}" if line else ">")
+        lines += [
             "",
             "---",
             "",
@@ -280,6 +354,9 @@ def generate_report(
         for profile in lead_profiles[:3]:
             role = profile.get("role", "")
             cloud = profile.get("cloud_platform", "")
+            seniority = ", ".join(profile.get("seniority_filter", []))
+            function = profile.get("job_function", "")
+            headcount = ", ".join(profile.get("headcount_ranges", []))
             angle = _suggest_outreach_angle(
                 role, cloud,
                 profile.get("pain_summaries", []),
@@ -287,9 +364,11 @@ def generate_report(
             )
             lines += [
                 f"**{role} ({cloud})**",
-                f"1. Search LinkedIn: `{profile.get('linkedin_query', '')}`",
-                f"2. [Open search →]({profile.get('linkedin_url', '')})",
-                f"3. Outreach angle: {angle}",
+                f"1. [Open Sales Navigator search →]({profile.get('linkedin_url', '')})",
+                f"2. Apply filters: Seniority = {seniority or '—'} · Function = {function or '—'}"
+                + (f" · Headcount = {headcount}" if headcount else ""),
+                f"3. Layer spotlight: *Changed jobs (90 days)* + *Posted recently*",
+                f"4. Outreach angle: {angle}",
                 "",
             ]
 
@@ -304,6 +383,126 @@ def generate_report(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _inmail_template(
+    role: str,
+    cloud: str,
+    pain_summaries: list[str],
+    tech: list[str],
+) -> tuple[str, str]:
+    """Return (subject_line, body) sized for Sales Navigator InMail limits.
+
+    Subject ≤ 200 chars, body ≤ 1,900 chars.
+    Placeholders in [brackets] must be filled in before sending.
+    """
+    pain_text = " ".join(pain_summaries).lower()
+
+    if any(w in pain_text for w in ("cost", "bill", "spend", "expensive")):
+        subject = f"Cloud cost question — {cloud} teams"
+        opening = (
+            f"A lot of {cloud} teams I speak with are dealing with the same thing right now: "
+            "cloud bills that are hard to predict and even harder to justify to leadership."
+        )
+    elif any(w in pain_text for w in ("terraform", "state", "drift", "iac")):
+        subject = "Terraform drift question"
+        opening = (
+            "Noticed a pattern across infra teams lately — Terraform state management and config "
+            "drift are eating up a disproportionate amount of engineer time."
+        )
+    elif any(w in pain_text for w in ("manual", "automat", "slow", "toil")):
+        subject = "Reducing manual infra work"
+        opening = (
+            "One thing I keep hearing from platform teams is that manual deployment and ops tasks "
+            "are still the biggest time sink, even at companies that are otherwise well-automated."
+        )
+    elif "kubernetes" in [t.lower() for t in tech] or "k8s" in pain_text:
+        subject = "K8s ops without the 2 AM pages"
+        opening = (
+            "Kubernetes cluster management seems to be the thing keeping most platform engineers "
+            "up at night — especially around scaling and on-call load."
+        )
+    elif "FinOps" in role or "Cloud Economics" in role:
+        subject = "Cloud cost chargeback question"
+        opening = (
+            "FinOps practitioners I talk to consistently name the same bottleneck: getting teams "
+            "to actually own their cloud spend without a manual chargeback process."
+        )
+    elif any(r in role for r in ("CTO", "VP", "Manager")):
+        subject = "Infrastructure velocity question"
+        opening = (
+            "One theme I keep seeing in engineering-heavy orgs: infra toil is quietly becoming "
+            "the bottleneck on shipping speed."
+        )
+    else:
+        subject = f"Infrastructure question for {role}s"
+        opening = (
+            "I've been speaking with a lot of infra and platform teams lately, and operational "
+            "toil keeps coming up as the thing slowing them down the most."
+        )
+
+    cloud_line = (
+        f" We work specifically with {cloud} teams, so the context is usually pretty relevant."
+        if cloud and cloud != "Multi-Cloud"
+        else ""
+    )
+
+    body = (
+        f"Hi [First Name],\n\n"
+        f"{opening}{cloud_line}\n\n"
+        f"InfrOS helps teams like yours [one-sentence value prop — e.g. 'cut cloud spend by "
+        f"20–35% without changing your architecture' or 'eliminate Terraform drift before it "
+        f"becomes an incident'].\n\n"
+        f"Worth a 15-minute call to see if it's relevant?\n\n"
+        f"[Your name]"
+    )
+    return subject, body
+
+
+def _spotlight_recommendations(
+    role: str,
+    company_sizes: list[str],
+    pain_summaries: list[str],
+) -> list[str]:
+    """Return prioritised Sales Navigator Spotlight/Account alert filters to layer on."""
+    recs: list[str] = []
+    pain_text = " ".join(pain_summaries).lower()
+
+    if any(r in role for r in ("Manager", "CTO", "VP", "Director", "Architect")):
+        recs.append(
+            "**Changed jobs in last 90 days** — new leaders actively evaluate tooling and have "
+            "mandate to change things; reply rates are 2–3× higher on this segment"
+        )
+
+    recs.append(
+        "**Posted on LinkedIn in last 30 days** — filters to people who are active on the "
+        "platform right now; dramatically increases the chance of a reply"
+    )
+
+    if "Enterprise" in company_sizes:
+        recs.append(
+            "**Account filter → Senior leadership change (last 3 months)** — a new exec is a "
+            "new budget holder still defining their vendor stack"
+        )
+
+    if any(s in company_sizes for s in ("Startup", "Scale-up / Mid-size")):
+        recs.append(
+            "**Account filter → Funding event in last 12 months** — fresh capital means infra "
+            "investment is on the roadmap; creates a natural buying window"
+        )
+
+    recs.append(
+        "**Account filter → Engineering headcount growing** — scaling eng teams hit infra pain "
+        "first; best leading indicator of near-term need"
+    )
+
+    if any(w in pain_text for w in ("cost", "bill", "spend", "finops")):
+        recs.append(
+            "**Account filter → Actively hiring FinOps / Cloud Cost roles** — if they're "
+            "recruiting for this, the pain is real and already budgeted"
+        )
+
+    return recs[:4]
+
 
 def _suggest_outreach_angle(
     role: str,
