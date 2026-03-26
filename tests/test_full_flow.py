@@ -704,6 +704,422 @@ def test_report() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 9. Report-generator helper functions — unit tests
+# ---------------------------------------------------------------------------
+
+def test_report_helpers() -> None:
+    print("\n=== 9. Report-generator helper functions ===")
+    from src.report_generator import (
+        _suggest_outreach_angle,
+        _talking_points,
+        _spotlight_recommendations,
+        _inmail_template,
+        _outreach_sequence,
+    )
+
+    roles = ["DevOps / Platform Engineer", "Cloud Architect",
+             "Engineering Manager", "CTO / VP Engineering",
+             "FinOps / Cloud Economics"]
+    clouds = ["AWS", "Azure", "GCP", "Multi-Cloud"]
+
+    for role in roles:
+        for cloud in clouds:
+            angle = _suggest_outreach_angle(role, cloud, ["costs too high"], ["Terraform"])
+            check(isinstance(angle, str) and len(angle) > 10,
+                  f"_suggest_outreach_angle: {role}/{cloud} returns string")
+
+            pts = _talking_points(role, cloud, ["struggling with terraform"], ["Terraform"])
+            check(isinstance(pts, list) and len(pts) >= 1,
+                  f"_talking_points: {role}/{cloud} returns ≥1 point")
+
+            subj, body = _inmail_template(role, cloud, ["costs out of control"], ["AWS"])
+            check(len(subj) > 5, f"_inmail_template: {role} subject non-empty")
+            check(len(body) > 50, f"_inmail_template: {role} body non-empty")
+            check(len(subj) <= 200, f"_inmail_template: {role} subject ≤200 chars",
+                  f"{len(subj)}")
+            check(len(body) <= 1900, f"_inmail_template: {role} body ≤1900 chars",
+                  f"{len(body)}")
+
+    # Spotlight recommendations
+    for size in [["Startup"], ["Enterprise"], ["Scale-up / Mid-size"], []]:
+        recs = _spotlight_recommendations("DevOps / Platform Engineer", size, ["struggling"])
+        check(isinstance(recs, list) and len(recs) >= 1,
+              f"_spotlight_recommendations: size={size} returns list")
+        check(any("Changed jobs" in r or "Mentioned" in r or "Posted" in r for r in recs),
+              f"_spotlight_recommendations: contains activity-based rec")
+
+    # Outreach sequence — all themes
+    for pain, expected_theme in [
+        (["costs out of control"], "cost"),
+        (["terraform state nightmare"], "terraform"),
+        (["kubernetes cluster chaos"], "kubernetes"),
+        (["manual processes everywhere"], "automation"),
+        (["finops chargeback problem"], "finops"),
+        (["general infra pain"], "infra"),
+    ]:
+        seq = _outreach_sequence("DevOps / Platform Engineer", "AWS", pain, ["AWS"], [])
+        check(len(seq) == 3, f"Sequence ({pain[0][:20]}…): 3 steps")
+        for step in seq:
+            check(len(step["text"]) <= 310,
+                  f"Sequence step char limit ({pain[0][:20]}…)",
+                  f"{len(step['text'])}")
+
+    # Competitor-aware follow-up
+    seq_with_comp = _outreach_sequence(
+        "DevOps / Platform Engineer", "AWS", ["costs"], ["AWS"], ["Spacelift"]
+    )
+    check("Spacelift" in seq_with_comp[2]["text"],
+          "Outreach: competitor named in step-3 follow-up when competitors present")
+
+    seq_no_comp = _outreach_sequence(
+        "DevOps / Platform Engineer", "AWS", ["costs"], ["AWS"], []
+    )
+    check("Spacelift" not in seq_no_comp[2]["text"],
+          "Outreach: no competitor reference when competitors list is empty")
+
+
+# ---------------------------------------------------------------------------
+# 10. Config manager
+# ---------------------------------------------------------------------------
+
+def test_config_manager() -> None:
+    print("\n=== 10. Config manager ===")
+    import tempfile, os
+    from src.config_manager import load_config, save_config, DEFAULT_CONFIG, _deep_merge
+    import src.config_manager as cm_mod
+
+    # Default config structure
+    cfg = DEFAULT_CONFIG
+    check("reddit" in cfg, "DEFAULT_CONFIG: has 'reddit' key")
+    check("linkedin" in cfg, "DEFAULT_CONFIG: has 'linkedin' key")
+    check("roadmap" in cfg, "DEFAULT_CONFIG: has 'roadmap' key")
+    check(isinstance(cfg["roadmap"]["features"], list), "DEFAULT_CONFIG: roadmap.features is list")
+    check(len(cfg["roadmap"]["features"]) >= 4, "DEFAULT_CONFIG: ≥4 roadmap features")
+
+    for feature in cfg["roadmap"]["features"]:
+        check("name" in feature, f"Roadmap feature has 'name': {feature.get('name','?')}")
+        check("keywords" in feature, f"Roadmap feature has 'keywords': {feature.get('name','?')}")
+        check(len(feature.get("keywords", [])) >= 3,
+              f"Roadmap feature has ≥3 keywords: {feature.get('name','?')}")
+
+    # _deep_merge
+    base = {"a": 1, "nested": {"x": 10, "y": 20}, "list": [1, 2]}
+    override = {"nested": {"y": 99, "z": 30}, "new_key": "hello"}
+    merged = _deep_merge(base, override)
+    check(merged["a"] == 1, "_deep_merge: base key preserved")
+    check(merged["nested"]["x"] == 10, "_deep_merge: nested base key preserved")
+    check(merged["nested"]["y"] == 99, "_deep_merge: nested key overridden")
+    check(merged["nested"]["z"] == 30, "_deep_merge: new nested key added")
+    check(merged["new_key"] == "hello", "_deep_merge: new top-level key added")
+    check(merged["list"] == [1, 2], "_deep_merge: list not merged, replaced")
+
+    # save_config / load_config round-trip using a temp file
+    orig_path = cm_mod.CONFIG_PATH
+    tmp = Path(tempfile.mktemp(suffix=".yaml"))
+    cm_mod.CONFIG_PATH = tmp
+    try:
+        check(not tmp.exists(), "Config: temp file does not exist yet")
+        loaded = load_config()
+        check(loaded["reddit"]["subreddits"] == DEFAULT_CONFIG["reddit"]["subreddits"],
+              "load_config: returns defaults when file missing")
+        check("roadmap" in loaded, "load_config: roadmap key present in defaults")
+
+        # Save a custom config and reload it
+        custom = load_config()
+        custom["reddit"]["search"]["min_score"] = 99
+        custom["roadmap"]["features"] = [{"name": "Test Feature", "description": "x", "keywords": ["test"]}]
+        save_config(custom)
+        check(tmp.exists(), "save_config: file created")
+        reloaded = load_config()
+        check(reloaded["reddit"]["search"]["min_score"] == 99,
+              "save_config → load_config: custom value preserved")
+        check(len(reloaded["roadmap"]["features"]) == 1,
+              "save_config → load_config: roadmap features preserved")
+    finally:
+        tmp.unlink(missing_ok=True)
+        cm_mod.CONFIG_PATH = orig_path
+
+
+# ---------------------------------------------------------------------------
+# 11. Edge cases — empty and minimal inputs
+# ---------------------------------------------------------------------------
+
+def test_edge_cases() -> None:
+    print("\n=== 11. Edge cases ===")
+    from src.analyzer import analyze_post, build_lead_profiles
+    from src.report_generator import generate_report
+    from src.session_manager import save_session, load_session
+    from src.roadmap_validator import validate_roadmap, generate_roadmap_report
+
+    def bare_post(i: int) -> dict:
+        return {
+            "id": str(i), "subreddit": "devops", "title": "Something", "body": "",
+            "score": 1, "upvote_ratio": 0.5, "num_comments": 0,
+            "url": "https://x", "created_utc": 1700000000.0,
+            "created_date": "2026-01-01", "is_self": True, "matched_keyword": "k",
+        }
+
+    # analyze_post on empty body
+    p = analyze_post(bare_post(1))
+    check(p["relevance_score"] >= 0.0, "Edge: empty body post scores ≥0")
+    check(p["relevance_score"] <= 1.0, "Edge: empty body post scores ≤1")
+    check(p["pain_signals"] == [], "Edge: empty body → no pain signals")
+    check(p["evaluation_signals"] == [], "Edge: empty body → no evaluation signals")
+    check(p["competitors_mentioned"] == [], "Edge: empty body → no competitors")
+    check(p["post_type"] == "discussion", "Edge: empty body → discussion post type")
+
+    # analyze_post on very long body
+    long_body = "struggling with " * 200
+    p2 = analyze_post({**bare_post(2), "body": long_body, "score": 50, "num_comments": 15})
+    check(p2["relevance_score"] <= 1.0, "Edge: very long repeated pain body ≤1.0")
+
+    # build_lead_profiles with no posts
+    profiles = build_lead_profiles([])
+    check(profiles == [], "Edge: build_lead_profiles([]) returns []")
+
+    # build_lead_profiles with all low-relevance posts
+    low_posts = [analyze_post(bare_post(i)) for i in range(5)]
+    profiles2 = build_lead_profiles(low_posts)
+    # Low-relevance posts (score=1, no signals) should be filtered out
+    check(isinstance(profiles2, list), "Edge: build_lead_profiles low-relevance returns list")
+
+    # generate_report on empty list
+    report = generate_report([], [], {})
+    check("No data" in report, "Edge: generate_report([]) returns no-data message")
+
+    # generate_report on single post
+    single = [analyze_post({**bare_post(1), "score": 50, "num_comments": 20,
+                             "title": "Terraform vs Pulumi comparison",
+                             "body": "Struggling with terraform. Comparing vs Pulumi."})]
+    profiles3 = build_lead_profiles(single)
+    report2 = generate_report(single, profiles3, {})
+    check(len(report2) > 100, "Edge: generate_report with single post produces output")
+
+    # save_session with empty lists
+    blob = save_session([], [], [])
+    r, a, p_list, m, ts = load_session(blob)
+    check(r == [] and a == [] and p_list == [], "Edge: save/load empty session")
+
+    # validate_roadmap with no posts
+    result = validate_roadmap([{"name": "F", "description": "d", "keywords": ["terraform"]}], [])
+    check(result["total_relevant_posts"] == 1, "Edge: validate_roadmap empty posts → total=1 (sentinel)")
+    check(result["features"][0]["matched_posts"] == 0, "Edge: validate_roadmap empty → 0 matched")
+
+    # validate_roadmap with no features
+    posts = [analyze_post({**bare_post(1), "body": "struggling with terraform"})]
+    result2 = validate_roadmap([], posts)
+    check(result2["features"] == [], "Edge: validate_roadmap empty features → []")
+    check(result2["dead_weight"] == [], "Edge: validate_roadmap empty features → dead_weight=[]")
+
+    # generate_roadmap_report on empty validation
+    empty_validation = {"total_relevant_posts": 0, "features": [], "white_space": [], "dead_weight": []}
+    report3 = generate_roadmap_report(empty_validation)
+    check("Roadmap Validation Report" in report3, "Edge: generate_roadmap_report empty → still has header")
+
+
+# ---------------------------------------------------------------------------
+# 12. Roadmap Validator — full feature tests
+# ---------------------------------------------------------------------------
+
+def test_roadmap_validator() -> None:
+    print("\n=== 12. Roadmap Validator ===")
+    from src.analyzer import analyze_post
+    from src.roadmap_validator import validate_roadmap, generate_roadmap_report
+    from src.config_manager import DEFAULT_CONFIG
+
+    def post(i, title, body, score=30, comments=10):
+        return {
+            "id": str(i), "subreddit": "devops", "title": title, "body": body,
+            "score": score, "upvote_ratio": 0.9, "num_comments": comments,
+            "url": f"https://x/{i}", "created_utc": 1700000000.0 + i,
+            "created_date": "2026-02-01", "is_self": True, "matched_keyword": "terraform",
+        }
+
+    raw_posts = [
+        # Strong Terraform state pain — matches roadmap feature
+        post(1, "Terraform state management nightmare at our startup",
+             "Struggling with terraform state. State file corruption keeps happening. "
+             "State locking fails. Looking for alternatives. Contract renewal coming up.",
+             score=120, comments=55),
+        # Cloud cost pain + buying signals
+        post(2, "AWS cloud bill out of control — open to alternatives",
+             "Cloud costs are killing us. Finops team can't get a handle on cloud spend. "
+             "Budget approval for a new tool. Running a POC. Comparing cost explorer vs others.",
+             score=90, comments=40),
+        # Multi-cloud pain — matches roadmap feature
+        post(3, "Multi-cloud management across AWS and Azure is a mess",
+             "We run a multi cloud setup. AWS and Azure both. Hard to maintain.",
+             score=25, comments=8),
+        # Compliance/policy pain — matches roadmap feature
+        post(4, "Policy enforcement and governance nightmare",
+             "No guardrails in place. Compliance team is upset. Need opa or sentinel.",
+             score=30, comments=12),
+        # CI/CD pain — matches roadmap feature
+        post(5, "GitHub Actions pipeline integration with Terraform is broken",
+             "Our ci/cd pipeline breaks on terraform plan. Pull request workflow is painful.",
+             score=20, comments=7),
+        # Hiring signal — should not match any feature strongly
+        post(6, "Hiring a DevOps engineer",
+             "We're scaling the infra team and hiring a devops platform engineer.",
+             score=8, comments=3),
+        # Random post
+        post(7, "Question about DNS",
+             "How do I configure DNS for my application?",
+             score=5, comments=2),
+    ]
+
+    analyzed = [analyze_post(p) for p in raw_posts]
+    roadmap_items = DEFAULT_CONFIG["roadmap"]["features"]
+
+    result = validate_roadmap(roadmap_items, analyzed)
+
+    # Structure checks
+    check("total_relevant_posts" in result, "validate_roadmap: has total_relevant_posts")
+    check("features" in result, "validate_roadmap: has features")
+    check("white_space" in result, "validate_roadmap: has white_space")
+    check("dead_weight" in result, "validate_roadmap: has dead_weight")
+    check(result["total_relevant_posts"] >= 1, "validate_roadmap: total_relevant_posts ≥ 1")
+    check(len(result["features"]) == len(roadmap_items),
+          "validate_roadmap: one result per roadmap item",
+          f"{len(result['features'])} vs {len(roadmap_items)}")
+
+    features = result["features"]
+
+    # Priority rank is unique and sequential
+    ranks = [f["priority_rank"] for f in features]
+    check(sorted(ranks) == list(range(1, len(features) + 1)),
+          "validate_roadmap: priority ranks are unique 1..N")
+
+    # Features are sorted by priority_score descending
+    scores = [f["priority_score"] for f in features]
+    check(scores == sorted(scores, reverse=True),
+          "validate_roadmap: features sorted by priority_score descending")
+
+    # Terraform state feature should rank near the top (strong signal)
+    terraform_feature = next(
+        (f for f in features if "terraform" in f["name"].lower() and "state" in f["name"].lower()),
+        None
+    )
+    check(terraform_feature is not None, "validate_roadmap: Terraform state feature found")
+    if terraform_feature:
+        check(terraform_feature["matched_posts"] >= 1,
+              "validate_roadmap: Terraform state feature has matched posts",
+              str(terraform_feature["matched_posts"]))
+        check(terraform_feature["priority_rank"] <= 4,
+              "validate_roadmap: Terraform state feature ranks in top 4",
+              str(terraform_feature["priority_rank"]))
+
+    # Cloud cost feature should detect buying signals
+    cost_feature = next(
+        (f for f in features if "cost" in f["name"].lower()), None
+    )
+    check(cost_feature is not None, "validate_roadmap: cloud cost feature found")
+    if cost_feature:
+        check(cost_feature["buyer_readiness"] >= 0.0,
+              "validate_roadmap: cloud cost buyer_readiness is numeric")
+        check(cost_feature["pain_intensity"] >= 0.0,
+              "validate_roadmap: cloud cost pain_intensity is numeric")
+        check(len(cost_feature["representative_quotes"]) >= 1,
+              "validate_roadmap: cloud cost has ≥1 representative quote")
+
+    # Dead weight: features with 0 matches
+    check(isinstance(result["dead_weight"], list), "validate_roadmap: dead_weight is list")
+
+    # Score bounds
+    for f in features:
+        check(0.0 <= f["priority_score"] <= 1.0,
+              f"validate_roadmap: {f['name']} priority_score in [0,1]",
+              str(f["priority_score"]))
+        check(0.0 <= f["buyer_readiness"] <= 1.0,
+              f"validate_roadmap: {f['name']} buyer_readiness in [0,1]")
+        check(0.0 <= f["demand_score"] <= 1.0,
+              f"validate_roadmap: {f['name']} demand_score in [0,1]")
+        check(0.0 <= f["pain_intensity"] <= 1.0,
+              f"validate_roadmap: {f['name']} pain_intensity in [0,1]")
+
+    # White space: should contain unaddressed pain themes
+    check(isinstance(result["white_space"], list), "validate_roadmap: white_space is list")
+    for ws in result["white_space"]:
+        check("pain_theme" in ws, f"white_space entry has pain_theme: {ws}")
+        check("frequency" in ws, f"white_space entry has frequency")
+        check("buyer_readiness" in ws, f"white_space entry has buyer_readiness")
+        check(0.0 <= ws["buyer_readiness"] <= 1.0, "white_space: buyer_readiness in [0,1]")
+
+    # Report generation
+    report = generate_roadmap_report(result)
+    check("Roadmap Validation Report" in report, "generate_roadmap_report: has title")
+    check("Feature Priority Ranking" in report, "generate_roadmap_report: has priority table")
+    check("Feature Detail" in report, "generate_roadmap_report: has feature detail section")
+    check("Recommended Actions" in report, "generate_roadmap_report: has recommended actions")
+    check("|" in report, "generate_roadmap_report: contains markdown table")
+
+    # Report should mention white space if any exist
+    if result["white_space"]:
+        check("White Space" in report, "generate_roadmap_report: has white space section")
+    if result["dead_weight"]:
+        check("Dead Weight" in report, "generate_roadmap_report: has dead weight section")
+
+    # Validate report is downloadable-length
+    check(len(report) > 500, "generate_roadmap_report: report has substantial content",
+          f"{len(report)} chars")
+    print(f"  Roadmap report: {len(report):,} chars, {report.count(chr(10))} lines")
+
+    # Features with no keywords → zero result gracefully
+    result2 = validate_roadmap(
+        [{"name": "Empty Feature", "description": "test", "keywords": []}],
+        analyzed
+    )
+    check(result2["features"][0]["matched_posts"] == 0,
+          "validate_roadmap: feature with no keywords → 0 matched")
+    check(result2["features"][0]["priority_score"] == 0.0,
+          "validate_roadmap: feature with no keywords → priority_score=0")
+
+
+# ---------------------------------------------------------------------------
+# 13. App module — smoke tests (import + state init, no Streamlit runtime)
+# ---------------------------------------------------------------------------
+
+def test_app_module() -> None:
+    print("\n=== 13. App module — smoke tests ===")
+    import ast
+
+    app_path = Path("app.py")
+    check(app_path.exists(), "app.py exists")
+    if not app_path.exists():
+        return
+
+    tree = ast.parse(app_path.read_text())
+
+    # All required pages are referenced in the source
+    source = app_path.read_text()
+    for page_name in ["Search & Discover", "Lead Profiles", "Report",
+                      "Roadmap Validator", "Settings"]:
+        check(page_name in source, f"app.py: page '{page_name}' referenced")
+
+    # New post types are handled in emoji map
+    check('"evaluation"' in source, "app.py: 'evaluation' type handled in emoji map")
+    check('"hiring_signal"' in source, "app.py: 'hiring_signal' type handled in emoji map")
+
+    # Filter includes new types
+    check("evaluation" in source, "app.py: evaluation in post-type filter")
+    check("hiring_signal" in source, "app.py: hiring_signal in post-type filter")
+
+    # Roadmap validator is imported
+    check("roadmap_validator" in source, "app.py: roadmap_validator imported")
+    check("validate_roadmap" in source, "app.py: validate_roadmap used")
+    check("generate_roadmap_report" in source, "app.py: generate_roadmap_report used")
+
+    # Session state keys initialised
+    for key in ["raw_posts", "analyzed_posts", "lead_profiles",
+                "_session_metadata", "_generated_report"]:
+        check(f'"{key}"' in source, f"app.py: session_state key '{key}' initialised")
+
+    # Config manager import
+    check("load_config" in source, "app.py: load_config imported")
+    check("save_config" in source, "app.py: save_config imported")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -720,6 +1136,11 @@ if __name__ == "__main__":
     test_real_reddit()
     test_session()
     test_report()
+    test_report_helpers()
+    test_config_manager()
+    test_edge_cases()
+    test_roadmap_validator()
+    test_app_module()
 
     print()
     print("=" * 60)

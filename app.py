@@ -22,6 +22,7 @@ from src.reddit_scraper import RedditScraper
 from src.analyzer import analyze_post, build_lead_profiles
 from src.session_manager import save_session, load_session, autosave as _disk_autosave
 from src.report_generator import generate_report
+from src.roadmap_validator import validate_roadmap, generate_roadmap_report
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -107,11 +108,12 @@ with st.sidebar:
 
     page = st.radio(
         "Navigate",
-        ["Search & Discover", "Lead Profiles", "Report", "Settings"],
+        ["Search & Discover", "Lead Profiles", "Report", "Roadmap Validator", "Settings"],
         format_func=lambda x: {
             "Search & Discover": "🔎 Search & Discover",
             "Lead Profiles": "📊 Lead Profiles",
             "Report": "📋 Report",
+            "Roadmap Validator": "🗺️ Roadmap Validator",
             "Settings": "⚙️ Settings",
         }[x],
     )
@@ -195,8 +197,16 @@ def _render_profile_card(profile: dict, idx: int):
     count = profile["post_count"]
     pain_count = profile["post_type_counts"].get("pain", 0)
 
+    eval_count = profile.get("post_type_counts", {}).get("evaluation", 0)
+    buying_count = profile.get("buying_signal_count", 0)
+    competitors = profile.get("competitors_seen", [])
+    label_parts = [f"{count} posts", f"{pain_count} pain"]
+    if eval_count:
+        label_parts.append(f"{eval_count} evaluation")
+    if buying_count:
+        label_parts.append(f"⚡ {buying_count} buying signals")
     with st.expander(
-        f"**{role}** · {cloud}  —  {count} posts ({pain_count} pain)",
+        f"**{role}** · {cloud}  —  {', '.join(label_parts)}",
         expanded=(idx == 0),
     ):
         col1, col2 = st.columns([3, 2])
@@ -220,6 +230,15 @@ def _render_profile_card(profile: dict, idx: int):
                 st.markdown("**Company size signals:**")
                 st.markdown(", ".join(profile["company_sizes"]))
 
+            if competitors:
+                st.markdown("**Competitors mentioned:**")
+                st.markdown(" ".join(f"`{c}`" for c in competitors[:4]))
+
+            if profile.get("linkedin_groups"):
+                st.markdown("**LinkedIn Groups:**")
+                for g in profile["linkedin_groups"][:3]:
+                    st.markdown(f"- {g}")
+
             st.markdown("**LinkedIn search query:**")
             st.code(profile.get("linkedin_query", ""), language=None)
 
@@ -233,9 +252,10 @@ def _render_profile_card(profile: dict, idx: int):
 def _render_post_card(post: dict):
     rel = post.get("relevance_score", 0)
     post_type = post.get("post_type", "discussion")
-    type_emoji = {"pain": "🔴", "solution": "🟢", "mixed": "🟡", "discussion": "⚪"}.get(
-        post_type, "⚪"
-    )
+    type_emoji = {
+        "pain": "🔴", "solution": "🟢", "mixed": "🟡",
+        "evaluation": "🔵", "hiring_signal": "🟣", "discussion": "⚪",
+    }.get(post_type, "⚪")
 
     with st.expander(
         f"{type_emoji} [{post.get('subreddit', '')}] {post.get('title', '')[:90]}  "
@@ -467,8 +487,8 @@ if page == "Search & Discover":
         with filter_col1:
             filter_type = st.multiselect(
                 "Post type",
-                ["pain", "solution", "mixed", "discussion"],
-                default=["pain", "mixed"],
+                ["pain", "evaluation", "mixed", "hiring_signal", "solution", "discussion"],
+                default=["pain", "evaluation", "mixed"],
             )
         with filter_col2:
             filter_min_rel = st.slider("Min relevance", 0.0, 1.0, 0.25, 0.05)
@@ -616,6 +636,169 @@ elif page == "Report":
 
 
 # ===========================================================================
+# PAGE: Roadmap Validator
+# ===========================================================================
+
+elif page == "Roadmap Validator":
+    st.title("🗺️ Roadmap Validator")
+    st.markdown(
+        "Cross-references your planned features against the Reddit pain data to answer: "
+        "**which features have real demand, which have buying-intent signals, "
+        "what pain exists that's not on your roadmap, and what has no signal at all.**"
+    )
+
+    analyzed_posts = st.session_state.analyzed_posts
+    cfg = st.session_state.config
+
+    if not analyzed_posts:
+        st.info("Run a search first — the validator needs Reddit pain data to work with.")
+    else:
+        roadmap_items = cfg.get("roadmap", {}).get("features", [])
+        if not roadmap_items:
+            st.warning("No roadmap features configured. Add them in **Settings → Roadmap**.")
+        else:
+            st.caption(
+                f"Validating {len(roadmap_items)} features against "
+                f"{len(analyzed_posts)} analyzed posts."
+            )
+
+            if st.button("▶️ Run Validation", use_container_width=False):
+                st.session_state["_roadmap_validation"] = validate_roadmap(
+                    roadmap_items, analyzed_posts
+                )
+
+            validation = st.session_state.get("_roadmap_validation")
+
+            if validation is None:
+                st.info("Click **Run Validation** to start.")
+            else:
+                features = validation["features"]
+                white_space = validation["white_space"]
+                dead_weight = validation["dead_weight"]
+                total = validation["total_relevant_posts"]
+
+                # ---- Summary metrics ----------------------------------------
+                active_features = [f for f in features if f["matched_posts"] > 0]
+                hot_features = [f for f in active_features if f["buyer_readiness"] >= 0.3]
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Features validated", len(features))
+                m2.metric("Features with signal", len(active_features))
+                m3.metric("⚡ With buying intent", len(hot_features))
+                m4.metric("White space gaps", len(white_space))
+
+                st.divider()
+
+                # ---- Priority table -----------------------------------------
+                st.markdown("### Feature Priority Ranking")
+                st.caption(
+                    "Ranked by: demand (40%) + buyer readiness (40%) + pain intensity (20%). "
+                    "⚡ = ≥30% of matching posts have buying signals."
+                )
+
+                import pandas as pd
+
+                table_rows = []
+                for f in features:
+                    flag = "⚡" if f["buyer_readiness"] >= 0.3 else ""
+                    table_rows.append({
+                        "Rank": f["priority_rank"],
+                        "Feature": f"{flag} {f['name']}".strip(),
+                        "Posts": f["matched_posts"],
+                        "Demand": f"{f['demand_score']:.0%}",
+                        "Buyer Ready": f"{f['buyer_readiness']:.0%}",
+                        "Pain Intensity": f"{f['pain_intensity']:.0%}",
+                        "Score": f"{f['priority_score']:.0%}",
+                    })
+                st.dataframe(
+                    pd.DataFrame(table_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                st.divider()
+
+                # ---- Feature detail cards -----------------------------------
+                st.markdown("### Feature Details")
+                for f in features:
+                    if f["matched_posts"] == 0:
+                        continue
+                    buyer_flag = " ⚡" if f["buyer_readiness"] >= 0.3 else ""
+                    with st.expander(
+                        f"#{f['priority_rank']} — **{f['name']}**{buyer_flag} "
+                        f"— {f['matched_posts']} posts · {f['priority_score']:.0%} score",
+                        expanded=(f["priority_rank"] == 1),
+                    ):
+                        c1, c2 = st.columns([2, 1])
+                        with c1:
+                            st.markdown(f"*{f['description']}*")
+                            if f.get("representative_quotes"):
+                                st.markdown("**What people are saying:**")
+                                for q in f["representative_quotes"]:
+                                    st.markdown(f'- *"{q}"*')
+                            if f.get("buyer_quotes"):
+                                st.markdown("**Active buyers (renewal / budget / RFP):**")
+                                for q in f["buyer_quotes"]:
+                                    st.markdown(f'- *"{q}"*')
+                        with c2:
+                            st.metric("Demand", f"{f['demand_score']:.0%}")
+                            st.metric("Buyer readiness", f"{f['buyer_readiness']:.0%}")
+                            st.metric("Evaluating tools", f"{f['eval_fraction']:.0%}")
+                            if f.get("competitors_in_context"):
+                                st.markdown("**Competitors seen:**")
+                                st.markdown(
+                                    " ".join(f"`{c}`" for c in f["competitors_in_context"])
+                                )
+
+                # ---- White space --------------------------------------------
+                if white_space:
+                    st.divider()
+                    st.markdown("### 🔍 White Space — Unaddressed Pain Themes")
+                    st.caption(
+                        "High-frequency pain signals in the Reddit data **not covered by any "
+                        "feature on your current roadmap**. Potential new feature opportunities."
+                    )
+                    for ws in white_space:
+                        buyer_flag = " ⚡" if ws["buyer_readiness"] >= 0.25 else ""
+                        with st.expander(
+                            f'*"{ws["pain_theme"]}"*{buyer_flag} — '
+                            f'{ws["frequency"]} posts · {ws["buyer_readiness"]:.0%} buyer readiness',
+                        ):
+                            if ws.get("sample_posts"):
+                                st.markdown("**Sample posts:**")
+                                for sp in ws["sample_posts"]:
+                                    st.markdown(f'- *"{sp}"*')
+                            if ws.get("competitors_seen"):
+                                st.markdown(
+                                    "**Competitors seen alongside this pain:** "
+                                    + ", ".join(f"`{c}`" for c in ws["competitors_seen"])
+                                )
+
+                # ---- Dead weight -------------------------------------------
+                if dead_weight:
+                    st.divider()
+                    st.markdown("### ⚠️ Dead Weight — Features With No Signal")
+                    st.caption(
+                        "These features had zero matching posts. Reconsider priority or "
+                        "check that keywords match how users actually describe the problem."
+                    )
+                    for name in dead_weight:
+                        st.markdown(f"- {name}")
+
+                # ---- Download report ----------------------------------------
+                st.divider()
+                report_md = generate_roadmap_report(
+                    validation, st.session_state._session_metadata
+                )
+                st.download_button(
+                    "⬇️ Download Roadmap Validation Report (.md)",
+                    data=report_md,
+                    file_name=f"infros_roadmap_validation_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                    mime="text/markdown",
+                )
+
+
+# ===========================================================================
 # PAGE: Settings
 # ===========================================================================
 
@@ -625,12 +808,13 @@ elif page == "Settings":
 
     cfg = st.session_state.config
 
-    tab_api, tab_subs, tab_keywords, tab_topics, tab_search = st.tabs([
+    tab_api, tab_subs, tab_keywords, tab_topics, tab_search, tab_roadmap = st.tabs([
         "🔑 Reddit API",
         "📋 Subreddits",
         "🔤 Keywords",
         "🗂️ Topics",
         "🎛️ Search Params",
+        "🗺️ Roadmap",
     ])
 
     # ---- Reddit API ----
@@ -812,3 +996,42 @@ elif page == "Settings":
             save_config(cfg)
             st.session_state.config = cfg
             st.success("Search parameters saved.")
+
+    # ---- Roadmap ----
+    with tab_roadmap:
+        st.markdown(
+            "### Product Roadmap Features\n"
+            "Define the features you're planning to build. The **Roadmap Validator** page "
+            "will cross-reference these against Reddit pain data to measure real demand.\n\n"
+            "Edit the YAML below — each item needs `name`, `description`, and `keywords` "
+            "(the keywords that someone in pain about this feature would use)."
+        )
+        import yaml
+
+        roadmap_yaml = yaml.dump(
+            cfg.get("roadmap", {}).get("features", []),
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+        new_roadmap_yaml = st.text_area(
+            "Roadmap features (YAML)",
+            value=roadmap_yaml,
+            height=500,
+        )
+        if st.button("Save roadmap"):
+            try:
+                new_features = yaml.safe_load(new_roadmap_yaml)
+                if isinstance(new_features, list):
+                    if "roadmap" not in cfg:
+                        cfg["roadmap"] = {}
+                    cfg["roadmap"]["features"] = new_features
+                    save_config(cfg)
+                    st.session_state.config = cfg
+                    # Invalidate cached validation when roadmap changes
+                    st.session_state.pop("_roadmap_validation", None)
+                    st.success(f"Saved {len(new_features)} roadmap features.")
+                else:
+                    st.error("YAML must be a list of feature objects.")
+            except yaml.YAMLError as e:
+                st.error(f"YAML parse error: {e}")

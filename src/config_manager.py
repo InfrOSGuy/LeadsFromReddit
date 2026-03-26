@@ -49,6 +49,50 @@ DEFAULT_CONFIG = {
     "linkedin": {
         "base_search_url": "https://www.linkedin.com/search/results/people/",
     },
+    "roadmap": {
+        "features": [
+            {
+                "name": "Cloud cost visibility & optimization",
+                "description": "Real-time spend tracking, waste detection, and right-sizing recommendations across cloud providers",
+                "keywords": ["cloud cost", "cloud bill", "cloud spend", "aws bill", "reduce cost", "right-siz", "rightsiz", "cost optim", "waste", "finops", "billing", "overspend", "cost control"],
+            },
+            {
+                "name": "Terraform state management",
+                "description": "Centralised, versioned Terraform state with locking, history, and audit trail",
+                "keywords": ["terraform state", "state file", "state lock", "remote state", "tfstate", "terragrunt", "state management"],
+            },
+            {
+                "name": "Infrastructure drift detection",
+                "description": "Automatically detect when live cloud resources diverge from their IaC definitions",
+                "keywords": ["drift", "configuration drift", "out of sync", "manual change", "infra drift", "detect drift"],
+            },
+            {
+                "name": "Team collaboration on IaC",
+                "description": "Shared Terraform workspaces, plan reviews, approvals, and audit log for infrastructure changes",
+                "keywords": ["team", "collaborate", "approval", "workflow", "plan review", "terraform workflow", "shared infra", "multi-team"],
+            },
+            {
+                "name": "Policy enforcement / guardrails",
+                "description": "Prevent non-compliant infrastructure changes with policy-as-code (OPA, Sentinel)",
+                "keywords": ["policy", "compliance", "guardrail", "sentinel", "opa", "governance", "security policy", "enforce"],
+            },
+            {
+                "name": "Multi-cloud management",
+                "description": "Single pane of glass for AWS, Azure, and GCP resources, costs, and operations",
+                "keywords": ["multi-cloud", "multi cloud", "cloud agnostic", "multiple cloud", "cross-cloud", "aws and azure", "azure and gcp"],
+            },
+            {
+                "name": "CI/CD pipeline integration",
+                "description": "Integrate infrastructure change workflows into existing GitHub/GitLab CI pipelines",
+                "keywords": ["ci/cd", "pipeline", "github actions", "gitlab ci", "atlantis", "gitops", "pr plan", "pull request", "automate deploy"],
+            },
+            {
+                "name": "Automated resource tagging",
+                "description": "Enforce consistent resource tagging for cost allocation, compliance, and governance",
+                "keywords": ["tagging", "tag enforcement", "cost allocation", "resource label", "untagged", "tag policy"],
+            },
+        ],
+    },
 }
 
 
